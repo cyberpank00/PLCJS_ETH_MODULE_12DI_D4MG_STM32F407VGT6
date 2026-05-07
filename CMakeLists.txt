@@ -44,12 +44,32 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user sources here
+    # Application sources
+    Application/app/app.c
+    Application/di/di_module.c
+    Application/led/led_module.c
+    Application/button/button_module.c
+    Application/settings/settings.c
+    Application/modbus/modbus_app.c
+    Application/modbus/modbus_tcp_server.c
+    # Third-party
+    Application/third_party/nanomodbus/nanomodbus.c
 )
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user defined include paths
+    Application/app
+    Application/di
+    Application/led
+    Application/button
+    Application/settings
+    Application/modbus
+    Application/third_party/nanomodbus
+)
+
+# Disable nanoMODBUS client side - we only need the slave/server.
+target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
+    NMBS_CLIENT_DISABLED=1
 )
 
 # Add project symbols (macros)

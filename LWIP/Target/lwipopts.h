@@ -113,7 +113,10 @@
 #define CHECKSUM_CHECK_ICMP6 0
 /*-----------------------------------------------------------------------------*/
 /* USER CODE BEGIN 1 */
-
+/* Enable receive timeout on netconns; used by the Modbus TCP server to
+ * apply a per-request read timeout via netconn_set_recvtimeout(). */
+#define LWIP_SO_RCVTIMEO 1
+#define LWIP_SO_SNDTIMEO 1
 /* USER CODE END 1 */
 
 #ifdef __cplusplus

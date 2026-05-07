@@ -25,7 +25,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "app.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -117,11 +117,11 @@ void StartDefaultTask(void *argument)
   /* init code for LWIP */
   MX_LWIP_Init();
   /* USER CODE BEGIN StartDefaultTask */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
+  /* Hand control to the application orchestrator. It spawns the DI / LED /
+   * Modbus tasks and reuses this task as the housekeeping loop, so it never
+   * returns. */
+  (void)argument;
+  app_run();
   /* USER CODE END StartDefaultTask */
 }
 
