@@ -1,0 +1,12 @@
+LWIP/Target/ethernetif.c:133:HAL_ETH_RxCpltCallback	0	static
+LWIP/Target/ethernetif.c:142:HAL_ETH_TxCpltCallback	0	static
+LWIP/Target/ethernetif.c:151:HAL_ETH_ErrorCallback	8	static
+LWIP/Target/ethernetif.c:384:ethernetif_input	8	static
+LWIP/Target/ethernetif.c:441:ethernetif_init	72	static
+LWIP/Target/ethernetif.c:291:low_level_output	80	static
+LWIP/Target/ethernetif.c:492:pbuf_free_custom	8	static
+LWIP/Target/ethernetif.c:515:sys_now	0	static
+LWIP/Target/ethernetif.c:530:ethernet_link_thread	0	static
+LWIP/Target/ethernetif.c:548:HAL_ETH_RxAllocateCallback	16	static
+LWIP/Target/ethernetif.c:570:HAL_ETH_RxLinkCallback	8	static
+LWIP/Target/ethernetif.c:607:HAL_ETH_TxFreeCallback	0	static

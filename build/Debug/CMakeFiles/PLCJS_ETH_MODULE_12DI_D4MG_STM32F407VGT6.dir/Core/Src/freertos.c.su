@@ -1,0 +1,2 @@
+Core/Src/freertos.c:73:MX_FREERTOS_Init	8	static
+Core/Src/freertos.c:115:StartDefaultTask	0	static

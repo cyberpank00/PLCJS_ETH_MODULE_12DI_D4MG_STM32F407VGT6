@@ -1,0 +1,8 @@
+Core/Src/stm32f4xx_it.c:71:NMI_Handler	0	static
+Core/Src/stm32f4xx_it.c:86:HardFault_Handler	0	static
+Core/Src/stm32f4xx_it.c:101:MemManage_Handler	0	static
+Core/Src/stm32f4xx_it.c:116:BusFault_Handler	0	static
+Core/Src/stm32f4xx_it.c:131:UsageFault_Handler	0	static
+Core/Src/stm32f4xx_it.c:146:DebugMon_Handler	0	static
+Core/Src/stm32f4xx_it.c:166:TIM1_UP_TIM10_IRQHandler	0	static
+Core/Src/stm32f4xx_it.c:180:ETH_IRQHandler	0	static
