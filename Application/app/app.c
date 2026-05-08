@@ -20,6 +20,7 @@
 
 #include "button_module.h"
 #include "di_module.h"
+#include "ksz8863.h"
 #include "led_module.h"
 #include "modbus_app.h"
 #include "modbus_tcp_server.h"
@@ -34,6 +35,13 @@ uint8_t modbus_app_take_pending_save(void);
 uint8_t modbus_app_take_pending_reboot(void);
 uint8_t modbus_app_take_pending_factory_reset(void);
 uint32_t modbus_app_last_request_tick(void);
+
+/* Latest result of the boot-time KSZ8863 SMI self-test. Exposed as a flag
+ * for any module that wants to react to the switch being unreachable
+ * (e.g. an LED pattern, future Modbus diagnostic registers). */
+static bool     s_ksz8863_present = false;
+static uint16_t s_ksz8863_id1     = 0u;
+static uint16_t s_ksz8863_id2     = 0u;
 
 /* ---------------------------------------------------------------------------
  * Sub-tasks
@@ -150,6 +158,13 @@ void app_run(void)
 
     /* Apply network configuration (static or DHCP). */
     apply_network_config();
+
+    /* HAL_ETH_Init() has already run by the time we get here (LwIP init
+     * called it from low_level_init()), so SMI/MIIM access is available.
+     * Probe the switch once: if it answers with a Micrel OUI we know the
+     * RMII/MDIO bus is healthy. The result is kept in static state for
+     * other modules to consult. */
+    s_ksz8863_present = ksz8863_self_test(&s_ksz8863_id1, &s_ksz8863_id2);
 
     /* Spawn periodic tasks. */
     const osThreadAttr_t di_attr  = {
