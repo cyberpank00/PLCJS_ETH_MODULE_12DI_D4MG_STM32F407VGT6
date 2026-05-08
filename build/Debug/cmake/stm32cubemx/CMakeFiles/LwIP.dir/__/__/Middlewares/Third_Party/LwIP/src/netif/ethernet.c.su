@@ -1,2 +1,0 @@
-Middlewares/Third_Party/LwIP/src/netif/ethernet.c:81:ethernet_input	24	static
-Middlewares/Third_Party/LwIP/src/netif/ethernet.c:270:ethernet_output	32	static
