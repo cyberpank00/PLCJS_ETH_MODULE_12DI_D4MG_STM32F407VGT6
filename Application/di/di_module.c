@@ -23,8 +23,8 @@
 /* ---------------------------------------------------------------------------
  * Pin map (taken from main.h / gpio.c). Index 0 corresponds to DI1 in the
  * Modbus map: register 0 == channel index 0 == DI1 on the silkscreen.
- * The .ioc labels happen to be DI0..Di1..DI11 (with DI0 on PB3 and Di1 on
- * PD7), so we publish a stable mapping here.
+ * The .ioc labels are DI0..DI11 (with DI0 on PB3 and DI1 on PD7), and the
+ * silkscreen labels are DI1..DI12, so we publish a stable mapping here.
  * ------------------------------------------------------------------------- */
 typedef struct {
     GPIO_TypeDef* port;
@@ -34,7 +34,7 @@ typedef struct {
 static const di_pin_t s_pins[DI_MODULE_CHANNEL_COUNT] = {
     /* idx -> Modbus register */
     { DI0_GPIO_Port,  DI0_Pin  },   /*  0 -> DI1 (PB3)  */
-    { Di1_GPIO_Port,  Di1_Pin  },   /*  1 -> DI2 (PD7)  */
+    { DI1_GPIO_Port,  DI1_Pin  },   /*  1 -> DI2 (PD7)  */
     { DI2_GPIO_Port,  DI2_Pin  },   /*  2 -> DI3 (PD6)  */
     { DI3_GPIO_Port,  DI3_Pin  },   /*  3 -> DI4 (PD5)  */
     { DI4_GPIO_Port,  DI4_Pin  },   /*  4 -> DI5 (PD4)  */
@@ -82,8 +82,8 @@ static void di_apply_pullups(void)
     gpio.Pin = DI9_Pin | DI10_Pin | DI11_Pin;
     HAL_GPIO_Init(GPIOC, &gpio);
 
-    /* PD: Di1, DI2, DI3, DI4, DI5, DI6, DI7, DI8 */
-    gpio.Pin = Di1_Pin | DI2_Pin | DI3_Pin | DI4_Pin |
+    /* PD: DI1, DI2, DI3, DI4, DI5, DI6, DI7, DI8 */
+    gpio.Pin = DI1_Pin | DI2_Pin | DI3_Pin | DI4_Pin |
                DI5_Pin | DI6_Pin | DI7_Pin | DI8_Pin;
     HAL_GPIO_Init(GPIOD, &gpio);
 }
