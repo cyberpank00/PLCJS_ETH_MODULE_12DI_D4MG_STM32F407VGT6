@@ -1,9 +1,0 @@
-Middlewares/Third_Party/LwIP/src/core/timeouts.c:166:tcp_timer_needed	8	static
-Middlewares/Third_Party/LwIP/src/core/timeouts.c:290:sys_timeout	24	static
-Middlewares/Third_Party/LwIP/src/core/timeouts.c:144:tcpip_tcp_timer	16	static
-Middlewares/Third_Party/LwIP/src/core/timeouts.c:264:sys_timeouts_init	16	static
-Middlewares/Third_Party/LwIP/src/core/timeouts.c:232:lwip_cyclic_timer	24	static
-Middlewares/Third_Party/LwIP/src/core/timeouts.c:317:sys_untimeout	8	static
-Middlewares/Third_Party/LwIP/src/core/timeouts.c:352:sys_check_timeouts	32	static
-Middlewares/Third_Party/LwIP/src/core/timeouts.c:404:sys_restart_timeouts	8	static
-Middlewares/Third_Party/LwIP/src/core/timeouts.c:426:sys_timeouts_sleeptime	8	static
