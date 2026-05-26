@@ -26,6 +26,8 @@
 #define LED_NOPOLL_PULSES       1u
 #define LED_POLLING_PULSES      2u
 #define LED_FRESET_PULSES       10u
+#define LED_NOLINK_PULSES       3u
+#define LED_NOLINK_PERIOD_MS    3000u
 
 /* ---------------------------------------------------------------------------
  * Internal state
@@ -70,6 +72,10 @@ static void led_load_pattern(led_state_t st, uint8_t one_shot)
     case LED_STATE_FACTORY_RESET:
         s_pattern.pulses    = LED_FRESET_PULSES;
         s_pattern.period_ms = LED_FRESET_PERIOD_MS;
+        break;
+    case LED_STATE_NO_LINK:
+        s_pattern.pulses    = LED_NOLINK_PULSES;
+        s_pattern.period_ms = LED_NOLINK_PERIOD_MS;
         break;
     case LED_STATE_NO_POLLING:
     default:

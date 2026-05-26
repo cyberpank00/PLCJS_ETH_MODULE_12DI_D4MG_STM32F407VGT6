@@ -120,6 +120,13 @@ bool settings_save(void)
         return false;
     }
 
+    /* Clear any leftover error flags from a previous interrupted operation
+     * (e.g. IWDG reset during erase). Without this, HAL_FLASHEx_Erase()
+     * finds stale flags in FLASH_SR and returns HAL_ERROR immediately. */
+    __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_EOP | FLASH_FLAG_OPERR |
+                           FLASH_FLAG_WRPERR | FLASH_FLAG_PGAERR |
+                           FLASH_FLAG_PGPERR | FLASH_FLAG_PGSERR);
+
     FLASH_EraseInitTypeDef erase = {
         .TypeErase    = FLASH_TYPEERASE_SECTORS,
         .Banks        = FLASH_BANK_1,

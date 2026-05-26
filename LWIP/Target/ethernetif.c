@@ -27,7 +27,9 @@
 #include "lwip/ethip6.h"
 #include "ethernetif.h"
 /* USER CODE BEGIN Include for User BSP */
-
+#include "ksz8863.h"
+#include "lwip/dhcp.h"
+#include "settings.h"
 /* USER CODE END Include for User BSP */
 #include <string.h>
 #include "cmsis_os.h"
@@ -35,7 +37,11 @@
 
 /* Within 'USER CODE' section, code will be kept by default at each generation */
 /* USER CODE BEGIN 0 */
-
+/* Diagnostic counters – visible in debugger */
+volatile uint32_t ethernetif_rx_int_cnt  = 0; /* RX complete interrupts    */
+volatile uint32_t ethernetif_rx_frame_cnt = 0; /* frames passed to LwIP     */
+volatile uint32_t ethernetif_tx_frame_cnt = 0; /* frames sent via low_level */
+volatile uint32_t ethernetif_tx_fail_cnt  = 0; /* TX errors                 */
 /* USER CODE END 0 */
 
 /* Private define ------------------------------------------------------------*/
@@ -106,7 +112,8 @@ ETH_DMADescTypeDef  DMARxDscrTab[ETH_RX_DESC_CNT]; /* Ethernet Rx DMA Descriptor
 ETH_DMADescTypeDef  DMATxDscrTab[ETH_TX_DESC_CNT]; /* Ethernet Tx DMA Descriptors */
 
 /* USER CODE BEGIN 2 */
-
+/* Live link state: 1 = at least one KSZ8863 external port has link. */
+volatile uint8_t g_eth_any_link_up = 0u;
 /* USER CODE END 2 */
 
 osSemaphoreId RxPktSemaphore = NULL;   /* Semaphore to signal incoming packets */
@@ -132,6 +139,7 @@ void pbuf_free_custom(struct pbuf *p);
   */
 void HAL_ETH_RxCpltCallback(ETH_HandleTypeDef *handlerEth)
 {
+  ethernetif_rx_int_cnt++;
   osSemaphoreRelease(RxPktSemaphore);
 }
 /**
@@ -183,12 +191,12 @@ static void low_level_init(struct netif *netif)
 
    uint8_t MACAddr[6] ;
   heth.Instance = ETH;
-  MACAddr[0] = 0x00;
-  MACAddr[1] = 0x80;
-  MACAddr[2] = 0xE1;
-  MACAddr[3] = 0x00;
-  MACAddr[4] = 0x00;
-  MACAddr[5] = 0x00;
+  MACAddr[0] = 0x02;
+  MACAddr[1] = 0x01;
+  MACAddr[2] = 0x23;
+  MACAddr[3] = 0x45;
+  MACAddr[4] = 0x67;
+  MACAddr[5] = 0x89;
   heth.Init.MACAddr = &MACAddr[0];
   heth.Init.MediaInterface = HAL_ETH_RMII_MODE;
   heth.Init.TxDesc = DMATxDscrTab;
@@ -322,12 +330,34 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
   TxConfig.TxBuffer = Txbuffer;
   TxConfig.pData = p;
 
+  /* Select correct checksum offload mode:
+   * - TCP/UDP need pseudo-header (CIC=11)
+   * - ICMP does NOT use pseudo-header (CIC=10)
+   * - Non-IP frames (ARP etc.) need no payload checksum (CIC=01 or 00)
+   * Detect protocol by inspecting Ethernet + IP headers. */
+  {
+    uint8_t *frame = (uint8_t *)p->payload;
+    uint16_t ethertype = (frame[12] << 8) | frame[13];
+    if (ethertype == 0x0800 && p->len >= 24) {
+      uint8_t ip_proto = frame[23]; /* IP protocol field */
+      if (ip_proto == 1) { /* ICMP */
+        TxConfig.ChecksumCtrl = ETH_CHECKSUM_IPHDR_PAYLOAD_INSERT;
+      } else {
+        TxConfig.ChecksumCtrl = ETH_CHECKSUM_IPHDR_PAYLOAD_INSERT_PHDR_CALC;
+      }
+    } else {
+      /* Non-IP frame (ARP, etc.) — no checksum offload needed */
+      TxConfig.ChecksumCtrl = ETH_CHECKSUM_DISABLE;
+    }
+  }
+
   pbuf_ref(p);
 
   do
   {
     if(HAL_ETH_Transmit_IT(&heth, &TxConfig) == HAL_OK)
     {
+      ethernetif_tx_frame_cnt++;
       errval = ERR_OK;
     }
     else
@@ -343,6 +373,7 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
       else
       {
         /* Other error */
+        ethernetif_tx_fail_cnt++;
         pbuf_free(p);
         errval =  ERR_IF;
       }
@@ -395,6 +426,7 @@ void ethernetif_input(void* argument)
         p = low_level_input( netif );
         if (p != NULL)
         {
+          ethernetif_rx_frame_cnt++;
           if (netif->input( p, netif) != ERR_OK )
           {
             pbuf_free(p);
@@ -444,7 +476,7 @@ err_t ethernetif_init(struct netif *netif)
 
 #if LWIP_NETIF_HOSTNAME
   /* Initialize interface hostname */
-  netif->hostname = "lwip";
+  netif->hostname = "PLCJS-ETH-12DI";
 #endif /* LWIP_NETIF_HOSTNAME */
 
   /*
@@ -531,14 +563,55 @@ void ethernet_link_thread(void* argument)
 {
 
 /* USER CODE BEGIN ETH link init */
-
+  struct netif *netif = (struct netif *)argument;
+  /* KSZ8863 port 3 (STM32 MAC) is an internal always-on MII link.
+   * Bring it up immediately so LwIP starts transmitting. */
+  HAL_ETH_Start_IT(&heth);
+  netif_set_link_up(netif);
+  g_eth_any_link_up = 1u;
 /* USER CODE END ETH link init */
+
+#define LINK_DOWN_DEBOUNCE_MS  2000u
+  bool netif_link_is_up = true;
+  uint32_t link_down_start = 0u;
 
   for(;;)
   {
 
 /* USER CODE BEGIN ETH link Thread core code for User BSP */
+    /* Poll KSZ8863 external port link status every 100 ms. */
+    ksz8863_link_status_t st1 = {0}, st2 = {0};
+    ksz8863_get_link(KSZ8863_PORT1, &st1);
+    ksz8863_get_link(KSZ8863_PORT2, &st2);
+    bool any_up = st1.link_up || st2.link_up;
 
+    /* Update the instantaneous flag (used by Modbus server & LED). */
+    g_eth_any_link_up = any_up ? 1u : 0u;
+
+    if (any_up) {
+      link_down_start = 0u;
+      if (!netif_link_is_up) {
+        /* Link restored -- bring netif back up. */
+        HAL_ETH_Start_IT(&heth);
+        netif_set_link_up(netif);
+        netif_link_is_up = true;
+        /* Restart DHCP if configured. */
+        if (settings_get()->use_dhcp) {
+          dhcp_start(netif);
+        }
+      }
+    } else if (netif_link_is_up) {
+      /* All ports link-down -- debounce before declaring netif down. */
+      if (link_down_start == 0u) {
+        link_down_start = osKernelGetTickCount();
+        if (link_down_start == 0u) { link_down_start = 1u; }
+      }
+      if ((osKernelGetTickCount() - link_down_start) >= LINK_DOWN_DEBOUNCE_MS) {
+        netif_set_link_down(netif);
+        HAL_ETH_Stop_IT(&heth);
+        netif_link_is_up = false;
+      }
+    }
 /* USER CODE END ETH link Thread core code for User BSP */
 
     osDelay(100);

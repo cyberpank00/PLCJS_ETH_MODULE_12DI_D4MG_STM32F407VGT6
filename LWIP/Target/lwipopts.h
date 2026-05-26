@@ -117,6 +117,10 @@
  * apply a per-request read timeout via netconn_set_recvtimeout(). */
 #define LWIP_SO_RCVTIMEO 1
 #define LWIP_SO_SNDTIMEO 1
+/* Enable per-connection keep-alive timers (idle, interval, count). */
+#define LWIP_TCP_KEEPALIVE 1
+/* Send hostname in DHCP requests so the router shows a friendly name. */
+#define LWIP_NETIF_HOSTNAME 1
 /* USER CODE END 1 */
 
 #ifdef __cplusplus

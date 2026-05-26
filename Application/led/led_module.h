@@ -28,6 +28,7 @@ typedef enum {
     LED_STATE_NO_POLLING     = 0,
     LED_STATE_POLLING        = 1,
     LED_STATE_FACTORY_RESET  = 2,
+    LED_STATE_NO_LINK        = 3,
 } led_state_t;
 
 /** Initialise the LED module with a given mode (see settings.h). */

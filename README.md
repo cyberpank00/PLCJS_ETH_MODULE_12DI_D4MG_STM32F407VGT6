@@ -267,6 +267,7 @@ modpoll -m tcp -a 1 -t 4:hex -r 118 -1 192.168.1.10 0xA5A5   # HR117 = save
 | `di/di_module.c`, `di_module.h`             | 12 каналов, pull-up, инвертированная логика, фильтр 10–1000 мс|
 | `led/led_module.c`, `led_module.h`          | STAT_LED FSM: `ALW_ON` / `ALW_OFF` / `STATE_MACHINE`         |
 | `button/button_module.c`, `button_module.h` | FACT_RES опрос на старте, ручка длительности                 |
+| `ksz8863/ksz8863.c`, `ksz8863.h`            | Драйвер Ethernet-свича KSZ8863MLLI по SMI/MIIM (MDC/MDIO)    |
 | `modbus/modbus_app.c`, `modbus_app.h`       | Карта регистров, валидация, deferred-триггеры, callback'и nanoMODBUS |
 | `modbus/modbus_tcp_server.c`, `modbus_tcp_server.h` | LwIP netconn slave, single-client, listen/accept loop |
 | `third_party/nanomodbus/`                   | nanoMODBUS (MIT), server-only, без RTU                       |
@@ -275,13 +276,53 @@ modpoll -m tcp -a 1 -t 4:hex -r 118 -1 192.168.1.10 0xA5A5   # HR117 = save
 
 | Файл                          | Что добавлено                                                                 |
 |-------------------------------|-------------------------------------------------------------------------------|
-| `Core/Src/freertos.c`         | `StartDefaultTask` после `MX_LWIP_Init()` вызывает `app_run()` (USER CODE)    |
+| `Core/Src/freertos.c`         | `StartDefaultTask`: `ksz8863_hw_reset()` **перед** `MX_LWIP_Init()`, потом `app_run()` (USER CODE) |
 | `LWIP/Target/lwipopts.h`      | `LWIP_SO_RCVTIMEO=1`, `LWIP_SO_SNDTIMEO=1` в USER CODE BEGIN 1               |
 | `CMakeLists.txt` (корень)     | Подключение `Application/` сорсов и инклудов, nanoMODBUS, `NMBS_CLIENT_DISABLED=1` |
 
 ---
 
-## 9. nanoMODBUS — полезные мелочи
+## 9. KSZ8863 — драйвер свича
+
+KSZ8863MLLI используется как **неуправляемый коммутатор** (порт 3 — это MAC-сторона STM32, конфигурируется страп-пинами; внешние порты 1 и 2 идут к разъёмам). Управление возможно через стандартный SMI/MIIM (MDC/MDIO), который уже разведён к ETH-перифериии STM32 — никаких SPI/I2C для драйвера не нужно.
+
+Драйвер в `Application/ksz8863/ksz8863.{h,c}` использует `HAL_ETH_ReadPHYRegister` / `HAL_ETH_WritePHYRegister` поверх общего `heth` из `ethernetif.c`. PHY-адреса: **0x01** для порта 1, **0x02** для порта 2.
+
+### Публичный API
+
+| Функция | Что делает |
+|---|---|
+| `ksz8863_hw_reset()` | Дёргает ETHRST (PD11) на 10 мс, снимает, ждёт 20 мс — чип готов к SMI |
+| `ksz8863_self_test(id1_out, id2_out)` | Читает PHYID1/PHYID2 порта 1, проверяет Micrel OUI `0x0022` |
+| `ksz8863_get_link(port, out)` | Парсит BMCR/BMSR/ANLPAR → `link_up`, `autoneg_done`, `speed`, `duplex` |
+| `ksz8863_set_force_mode(port, speed, duplex)` | Снимает auto-neg, ставит фиксированный режим 10/100 × half/full |
+| `ksz8863_restart_autoneg(port)` | Включает auto-neg и пускает рестарт (BMCR.RESTART_AN) |
+| `ksz8863_port_enable(port, enable)` | Power-down / power-up порта через `BMCR.POWER_DOWN` |
+
+### Точки интеграции в boot-последовательности
+
+```
+Reset_Handler → main() → MX_GPIO_Init (ETHRST = LOW) → ... → osKernelStart
+  └ StartDefaultTask
+       ├ ksz8863_hw_reset()      ← ETHRST поднимается ЗДЕСЬ, до MAC
+       ├ MX_LWIP_Init()          ← внутри HAL_ETH_Init() — теперь PHY доступен
+       └ app_run()
+             └ apply_network_config()
+             └ ksz8863_self_test()  ← SMI готова, читаем PHYID для self-test
+```
+
+Результат self-test хранится в статике `s_ksz8863_present` / `s_ksz8863_id1` / `s_ksz8863_id2` в `app.c` — для будущей логики (паттерн STAT_LED при «свич не отвечает», диагностические регистры). **В Modbus наружу не выведено** — только внутреннее состояние.
+
+### Нюансы / ограничения
+
+* Self-test проверяет только порт 1 (оба внешних порта на одном кристалле, поэтому одного достаточно).
+* PHYID2 читается, но не валидируется: младшие нибблы (model + revision) гуляют между ревизиями кремния. Жёстко проверяется только PHYID1 = `0x0022` (Micrel OUI).
+* «Все нули» / «все единицы» в PHYID интерпретируются как fail — ловит «MDIO floating high» и «чип в ресете».
+* Периодического link-polling нет: API синхронные, дёргать вручную из прикладной задачи когда нужно (когда появятся LED-паттерны или диагностические регистры).
+
+---
+
+## 10. nanoMODBUS — полезные мелочи
 
 * Используется **server-only** сборка (`-DNMBS_CLIENT_DISABLED=1`) — экономит ~6 КБ Flash.
 * Внутренний макрос `DEBUG(...)` в `nanomodbus.c` конфликтует с проектным `-DDEBUG`. В вендоре добавлен `#undef DEBUG` перед собственным `#define`, чтобы не было `-Wmacro-redefined`.
@@ -289,7 +330,7 @@ modpoll -m tcp -a 1 -t 4:hex -r 118 -1 192.168.1.10 0xA5A5   # HR117 = save
 
 ---
 
-## 10. Тестирование на железе (минимум)
+## 11. Тестирование на железе (минимум)
 
 1. Прошить плату.
 2. STAT_LED после старта моргает «1 импульс / 3 с» (`LED_STATE_NO_POLLING`).
@@ -300,12 +341,11 @@ modpoll -m tcp -a 1 -t 4:hex -r 118 -1 192.168.1.10 0xA5A5   # HR117 = save
 
 ---
 
-## 11. Что не реализовано / TODO
+## 12. Что не реализовано / TODO
 
-* MII-конфигурация KSZ8863MLLI — сейчас PHY работает в дефолтном режиме unmanaged switch. Добавление SPI/MII-driver файла настроек — задел на будущее.
+* KSZ8863: добавлены reset/self-test/link/force/power-down (см. §9), но периодический опрос link-status и индикация в STAT_LED / Modbus IR пока не подключены.
 * Diagnostic counters (число пакетов / ошибок / разрывов) пока не выведены в input registers.
 * Watchdog-таймаут не выведен в настройки (фиксирован в CubeMX).
-* `build/` каталог тянется в репозитории (унаследовано); рекомендую добавить в `.gitignore` отдельным коммитом.
 
 ---
 

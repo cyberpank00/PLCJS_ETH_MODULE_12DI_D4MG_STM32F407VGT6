@@ -49,6 +49,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Application/di/di_module.c
     Application/led/led_module.c
     Application/button/button_module.c
+    Application/ksz8863/ksz8863.c
     Application/settings/settings.c
     Application/modbus/modbus_app.c
     Application/modbus/modbus_tcp_server.c
@@ -62,6 +63,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Application/di
     Application/led
     Application/button
+    Application/ksz8863
     Application/settings
     Application/modbus
     Application/third_party/nanomodbus
