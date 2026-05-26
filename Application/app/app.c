@@ -38,6 +38,9 @@ extern volatile uint32_t ethernetif_rx_frame_cnt;
 extern volatile uint32_t ethernetif_tx_frame_cnt;
 extern volatile uint32_t ethernetif_tx_fail_cnt;
 
+/* Physical link state from ethernet_link_thread (ethernetif.c). */
+extern volatile uint8_t g_eth_any_link_up;
+
 /* Module accessors implemented in modbus_app.c. */
 uint8_t modbus_app_take_pending_save(void);
 uint8_t modbus_app_take_pending_reboot(void);
@@ -81,6 +84,9 @@ volatile struct {
     uint32_t rx_frame_cnt;         /* frames passed to LwIP                  */
     uint32_t tx_frame_cnt;         /* frames sent by LwIP                    */
     uint32_t tx_fail_cnt;          /* TX errors                              */
+    uint8_t  phy_link_up;          /* any KSZ8863 external port has link     */
+    uint8_t  save_ok;              /* last settings_save() result            */
+    uint8_t  save_count;           /* total settings_save() calls            */
 } dbg;
 
 /* ---------------------------------------------------------------------------
@@ -163,6 +169,12 @@ static void apply_network_config(void)
  * ------------------------------------------------------------------------- */
 static void update_led_state_from_traffic(void)
 {
+    /* No physical link on either KSZ8863 port → distinct pattern. */
+    if (!g_eth_any_link_up) {
+        led_module_set_state(LED_STATE_NO_LINK);
+        return;
+    }
+
     const uint32_t now      = HAL_GetTick();
     const uint32_t last_req = modbus_app_last_request_tick();
 
@@ -281,11 +293,14 @@ void app_run(void)
         dbg.rx_frame_cnt = ethernetif_rx_frame_cnt;
         dbg.tx_frame_cnt = ethernetif_tx_frame_cnt;
         dbg.tx_fail_cnt  = ethernetif_tx_fail_cnt;
+        dbg.phy_link_up  = g_eth_any_link_up;
         dbg.boot_stage    = 4;
         update_led_state_from_traffic();
 
         if (modbus_app_take_pending_save()) {
-            (void)settings_save();
+            HAL_IWDG_Refresh(&hiwdg);
+            dbg.save_ok = settings_save() ? 1u : 0u;
+            dbg.save_count++;
         }
         if (modbus_app_take_pending_factory_reset()) {
             perform_factory_reset();

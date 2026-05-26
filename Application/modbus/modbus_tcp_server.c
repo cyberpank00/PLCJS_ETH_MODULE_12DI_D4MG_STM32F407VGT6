@@ -17,15 +17,28 @@
 #include "lwip/api.h"
 #include "lwip/err.h"
 #include "lwip/sys.h"
+#include "lwip/tcp.h"
 
 #include "modbus_app.h"
 #include "nanomodbus.h"
 #include "settings.h"
 
+/* Physical link state from ethernet_link_thread. */
+extern volatile uint8_t g_eth_any_link_up;
+
 /* ---------------------------------------------------------------------------
  * IO context wrapping a netconn for the nanoMODBUS byte-callbacks.
  * ------------------------------------------------------------------------- */
 #define MB_TX_BUF_SIZE  280u  /* max Modbus TCP frame: 7 MBAP + 253 PDU */
+
+/* TCP keep-alive parameters (in milliseconds) */
+#define MB_KEEPALIVE_IDLE_MS    10000u  /* 10 s idle before first probe  */
+#define MB_KEEPALIVE_INTVL_MS    2000u  /*  2 s between probes           */
+#define MB_KEEPALIVE_CNT            3u  /*  3 probes → dead after ~16 s  */
+
+/* Max consecutive read-timeouts before we drop the connection (safety net
+ * in case TCP keep-alive cannot detect the failure). */
+#define MB_MAX_IDLE_TIMEOUTS        6u  /* 6 × 5 s = 30 s */
 
 typedef struct {
     struct netconn* conn;
@@ -119,6 +132,12 @@ static void mb_sleep(uint32_t ms, void* arg)
  * ------------------------------------------------------------------------- */
 static void handle_client(struct netconn* newconn)
 {
+    /* Enable TCP keep-alive so a cable-pull is detected within ~16 s. */
+    ip_set_option(newconn->pcb.tcp, SOF_KEEPALIVE);
+    newconn->pcb.tcp->keep_idle  = MB_KEEPALIVE_IDLE_MS;
+    newconn->pcb.tcp->keep_intvl = MB_KEEPALIVE_INTVL_MS;
+    newconn->pcb.tcp->keep_cnt   = MB_KEEPALIVE_CNT;
+
     mb_io_t io = {
         .conn       = newconn,
         .inbuf      = NULL,
@@ -149,16 +168,22 @@ static void handle_client(struct netconn* newconn)
 
     s_client_connected = 1u;
 
+    uint32_t idle_timeouts = 0u;
+
     for (;;) {
         io.txbuf_len = 0u;  /* reset TX buffer before each poll */
         const nmbs_error e = nmbs_server_poll(&mb);
         if (e == NMBS_ERROR_NONE) {
             mb_flush(&io);   /* send complete response in one TCP segment */
             modbus_app_notify_request();
+            idle_timeouts = 0u;
             continue;
         }
         if (e == NMBS_ERROR_TIMEOUT) {
-            /* Idle keep-alive — keep going if the client is still around. */
+            idle_timeouts++;
+            if (idle_timeouts >= MB_MAX_IDLE_TIMEOUTS || !g_eth_any_link_up) {
+                break;  /* 30 s idle → force-close stale connection */
+            }
             continue;
         }
         /* Transport error or anything else: the connection is gone. */

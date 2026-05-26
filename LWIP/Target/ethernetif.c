@@ -28,6 +28,8 @@
 #include "ethernetif.h"
 /* USER CODE BEGIN Include for User BSP */
 #include "ksz8863.h"
+#include "lwip/dhcp.h"
+#include "settings.h"
 /* USER CODE END Include for User BSP */
 #include <string.h>
 #include "cmsis_os.h"
@@ -110,7 +112,8 @@ ETH_DMADescTypeDef  DMARxDscrTab[ETH_RX_DESC_CNT]; /* Ethernet Rx DMA Descriptor
 ETH_DMADescTypeDef  DMATxDscrTab[ETH_TX_DESC_CNT]; /* Ethernet Tx DMA Descriptors */
 
 /* USER CODE BEGIN 2 */
-
+/* Live link state: 1 = at least one KSZ8863 external port has link. */
+volatile uint8_t g_eth_any_link_up = 0u;
 /* USER CODE END 2 */
 
 osSemaphoreId RxPktSemaphore = NULL;   /* Semaphore to signal incoming packets */
@@ -473,7 +476,7 @@ err_t ethernetif_init(struct netif *netif)
 
 #if LWIP_NETIF_HOSTNAME
   /* Initialize interface hostname */
-  netif->hostname = "lwip";
+  netif->hostname = "PLCJS-ETH-12DI";
 #endif /* LWIP_NETIF_HOSTNAME */
 
   /*
@@ -565,13 +568,50 @@ void ethernet_link_thread(void* argument)
    * Bring it up immediately so LwIP starts transmitting. */
   HAL_ETH_Start_IT(&heth);
   netif_set_link_up(netif);
+  g_eth_any_link_up = 1u;
 /* USER CODE END ETH link init */
+
+#define LINK_DOWN_DEBOUNCE_MS  2000u
+  bool netif_link_is_up = true;
+  uint32_t link_down_start = 0u;
 
   for(;;)
   {
 
 /* USER CODE BEGIN ETH link Thread core code for User BSP */
+    /* Poll KSZ8863 external port link status every 100 ms. */
+    ksz8863_link_status_t st1 = {0}, st2 = {0};
+    ksz8863_get_link(KSZ8863_PORT1, &st1);
+    ksz8863_get_link(KSZ8863_PORT2, &st2);
+    bool any_up = st1.link_up || st2.link_up;
 
+    /* Update the instantaneous flag (used by Modbus server & LED). */
+    g_eth_any_link_up = any_up ? 1u : 0u;
+
+    if (any_up) {
+      link_down_start = 0u;
+      if (!netif_link_is_up) {
+        /* Link restored -- bring netif back up. */
+        HAL_ETH_Start_IT(&heth);
+        netif_set_link_up(netif);
+        netif_link_is_up = true;
+        /* Restart DHCP if configured. */
+        if (settings_get()->use_dhcp) {
+          dhcp_start(netif);
+        }
+      }
+    } else if (netif_link_is_up) {
+      /* All ports link-down -- debounce before declaring netif down. */
+      if (link_down_start == 0u) {
+        link_down_start = osKernelGetTickCount();
+        if (link_down_start == 0u) { link_down_start = 1u; }
+      }
+      if ((osKernelGetTickCount() - link_down_start) >= LINK_DOWN_DEBOUNCE_MS) {
+        netif_set_link_down(netif);
+        HAL_ETH_Stop_IT(&heth);
+        netif_link_is_up = false;
+      }
+    }
 /* USER CODE END ETH link Thread core code for User BSP */
 
     osDelay(100);
