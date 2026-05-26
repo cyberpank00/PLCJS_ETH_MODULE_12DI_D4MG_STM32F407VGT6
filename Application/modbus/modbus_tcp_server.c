@@ -25,12 +25,16 @@
 /* ---------------------------------------------------------------------------
  * IO context wrapping a netconn for the nanoMODBUS byte-callbacks.
  * ------------------------------------------------------------------------- */
+#define MB_TX_BUF_SIZE  280u  /* max Modbus TCP frame: 7 MBAP + 253 PDU */
+
 typedef struct {
     struct netconn* conn;
     struct netbuf*  inbuf;
     char*           inbuf_data;
     u16_t           inbuf_len;
     u16_t           inbuf_pos;
+    uint8_t         txbuf[MB_TX_BUF_SIZE];
+    u16_t           txbuf_len;
 } mb_io_t;
 
 /* ---------------------------------------------------------------------------
@@ -79,18 +83,29 @@ static int mb_read_byte(uint8_t* b, int32_t timeout_ms, void* arg)
     return 1;
 }
 
+/* Buffer bytes instead of sending one-by-one.  The complete response is
+ * flushed to TCP after nmbs_server_poll() returns (see handle_client). */
 static int mb_write_byte(uint8_t b, int32_t timeout_ms, void* arg)
 {
     (void)timeout_ms;
     mb_io_t* io = (mb_io_t*)arg;
-    const err_t err = netconn_write(io->conn, &b, 1, NETCONN_COPY);
-    if (err == ERR_TIMEOUT) {
+    if (io->txbuf_len >= MB_TX_BUF_SIZE) {
+        return -1;  /* buffer overflow — should never happen */
+    }
+    io->txbuf[io->txbuf_len++] = b;
+    return 1;
+}
+
+/* Flush the buffered TX data as a single TCP segment. */
+static int mb_flush(mb_io_t* io)
+{
+    if (io->txbuf_len == 0u) {
         return 0;
     }
-    if (err != ERR_OK) {
-        return -1;
-    }
-    return 1;
+    const err_t err = netconn_write(io->conn, io->txbuf, io->txbuf_len,
+                                    NETCONN_COPY);
+    io->txbuf_len = 0u;
+    return (err == ERR_OK) ? 0 : -1;
 }
 
 static void mb_sleep(uint32_t ms, void* arg)
@@ -110,6 +125,7 @@ static void handle_client(struct netconn* newconn)
         .inbuf_data = NULL,
         .inbuf_len  = 0,
         .inbuf_pos  = 0,
+        .txbuf_len  = 0,
     };
 
     nmbs_platform_conf platform = {
@@ -134,8 +150,10 @@ static void handle_client(struct netconn* newconn)
     s_client_connected = 1u;
 
     for (;;) {
+        io.txbuf_len = 0u;  /* reset TX buffer before each poll */
         const nmbs_error e = nmbs_server_poll(&mb);
         if (e == NMBS_ERROR_NONE) {
+            mb_flush(&io);   /* send complete response in one TCP segment */
             modbus_app_notify_request();
             continue;
         }
