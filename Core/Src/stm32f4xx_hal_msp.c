@@ -80,4 +80,51 @@ void HAL_MspInit(void)
 
 /* USER CODE BEGIN 1 */
 
+/**
+  * @brief ETH MSP Initialization - RMII pin configuration for KSZ8863MLLI.
+  *
+  * RMII signals (all AF11 = GPIO_AF11_ETH):
+  *   PA1  - ETH_RMII_REF_CLK
+  *   PA2  - ETH_MDIO
+  *   PA7  - ETH_RMII_CRS_DV
+  *   PB11 - ETH_RMII_TX_EN
+  *   PB12 - ETH_RMII_TXD0
+  *   PB13 - ETH_RMII_TXD1
+  *   PC1  - ETH_MDC
+  *   PC4  - ETH_RMII_RXD0
+  *   PC5  - ETH_RMII_RXD1
+  */
+void HAL_ETH_MspInit(ETH_HandleTypeDef *heth)
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+  if (heth->Instance == ETH)
+  {
+    /* Enable peripheral clocks */
+    __HAL_RCC_ETH_CLK_ENABLE();
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    __HAL_RCC_GPIOC_CLK_ENABLE();
+
+    /* PA1 (REF_CLK), PA2 (MDIO), PA7 (CRS_DV) */
+    GPIO_InitStruct.Pin       = GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_7;
+    GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull      = GPIO_NOPULL;
+    GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF11_ETH;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    /* PB11 (TX_EN), PB12 (TXD0), PB13 (TXD1) */
+    GPIO_InitStruct.Pin       = GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+    /* PC1 (MDC), PC4 (RXD0), PC5 (RXD1) */
+    GPIO_InitStruct.Pin       = GPIO_PIN_1 | GPIO_PIN_4 | GPIO_PIN_5;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+    /* ETH global interrupt */
+    HAL_NVIC_SetPriority(ETH_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(ETH_IRQn);
+  }
+}
 /* USER CODE END 1 */

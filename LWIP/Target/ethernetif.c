@@ -27,7 +27,7 @@
 #include "lwip/ethip6.h"
 #include "ethernetif.h"
 /* USER CODE BEGIN Include for User BSP */
-
+#include "ksz8863.h"
 /* USER CODE END Include for User BSP */
 #include <string.h>
 #include "cmsis_os.h"
@@ -183,12 +183,12 @@ static void low_level_init(struct netif *netif)
 
    uint8_t MACAddr[6] ;
   heth.Instance = ETH;
-  MACAddr[0] = 0x00;
-  MACAddr[1] = 0x80;
-  MACAddr[2] = 0xE1;
-  MACAddr[3] = 0x00;
-  MACAddr[4] = 0x00;
-  MACAddr[5] = 0x00;
+  MACAddr[0] = 0x02;
+  MACAddr[1] = 0x01;
+  MACAddr[2] = 0x02;
+  MACAddr[3] = 0x03;
+  MACAddr[4] = 0x04;
+  MACAddr[5] = 0x05;
   heth.Init.MACAddr = &MACAddr[0];
   heth.Init.MediaInterface = HAL_ETH_RMII_MODE;
   heth.Init.TxDesc = DMATxDscrTab;
@@ -531,7 +531,11 @@ void ethernet_link_thread(void* argument)
 {
 
 /* USER CODE BEGIN ETH link init */
-
+  struct netif *netif = (struct netif *)argument;
+  /* KSZ8863 port 3 (STM32 MAC) is an internal always-on MII link.
+   * Bring it up immediately so LwIP starts transmitting. */
+  HAL_ETH_Start_IT(&heth);
+  netif_set_link_up(netif);
 /* USER CODE END ETH link init */
 
   for(;;)
