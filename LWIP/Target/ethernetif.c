@@ -35,7 +35,11 @@
 
 /* Within 'USER CODE' section, code will be kept by default at each generation */
 /* USER CODE BEGIN 0 */
-
+/* Diagnostic counters – visible in debugger */
+volatile uint32_t ethernetif_rx_int_cnt  = 0; /* RX complete interrupts    */
+volatile uint32_t ethernetif_rx_frame_cnt = 0; /* frames passed to LwIP     */
+volatile uint32_t ethernetif_tx_frame_cnt = 0; /* frames sent via low_level */
+volatile uint32_t ethernetif_tx_fail_cnt  = 0; /* TX errors                 */
 /* USER CODE END 0 */
 
 /* Private define ------------------------------------------------------------*/
@@ -132,6 +136,7 @@ void pbuf_free_custom(struct pbuf *p);
   */
 void HAL_ETH_RxCpltCallback(ETH_HandleTypeDef *handlerEth)
 {
+  ethernetif_rx_int_cnt++;
   osSemaphoreRelease(RxPktSemaphore);
 }
 /**
@@ -185,10 +190,10 @@ static void low_level_init(struct netif *netif)
   heth.Instance = ETH;
   MACAddr[0] = 0x02;
   MACAddr[1] = 0x01;
-  MACAddr[2] = 0x02;
-  MACAddr[3] = 0x03;
-  MACAddr[4] = 0x04;
-  MACAddr[5] = 0x05;
+  MACAddr[2] = 0x23;
+  MACAddr[3] = 0x45;
+  MACAddr[4] = 0x67;
+  MACAddr[5] = 0x89;
   heth.Init.MACAddr = &MACAddr[0];
   heth.Init.MediaInterface = HAL_ETH_RMII_MODE;
   heth.Init.TxDesc = DMATxDscrTab;
@@ -322,12 +327,34 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
   TxConfig.TxBuffer = Txbuffer;
   TxConfig.pData = p;
 
+  /* Select correct checksum offload mode:
+   * - TCP/UDP need pseudo-header (CIC=11)
+   * - ICMP does NOT use pseudo-header (CIC=10)
+   * - Non-IP frames (ARP etc.) need no payload checksum (CIC=01 or 00)
+   * Detect protocol by inspecting Ethernet + IP headers. */
+  {
+    uint8_t *frame = (uint8_t *)p->payload;
+    uint16_t ethertype = (frame[12] << 8) | frame[13];
+    if (ethertype == 0x0800 && p->len >= 24) {
+      uint8_t ip_proto = frame[23]; /* IP protocol field */
+      if (ip_proto == 1) { /* ICMP */
+        TxConfig.ChecksumCtrl = ETH_CHECKSUM_IPHDR_PAYLOAD_INSERT;
+      } else {
+        TxConfig.ChecksumCtrl = ETH_CHECKSUM_IPHDR_PAYLOAD_INSERT_PHDR_CALC;
+      }
+    } else {
+      /* Non-IP frame (ARP, etc.) — no checksum offload needed */
+      TxConfig.ChecksumCtrl = ETH_CHECKSUM_DISABLE;
+    }
+  }
+
   pbuf_ref(p);
 
   do
   {
     if(HAL_ETH_Transmit_IT(&heth, &TxConfig) == HAL_OK)
     {
+      ethernetif_tx_frame_cnt++;
       errval = ERR_OK;
     }
     else
@@ -343,6 +370,7 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
       else
       {
         /* Other error */
+        ethernetif_tx_fail_cnt++;
         pbuf_free(p);
         errval =  ERR_IF;
       }
@@ -395,6 +423,7 @@ void ethernetif_input(void* argument)
         p = low_level_input( netif );
         if (p != NULL)
         {
+          ethernetif_rx_frame_cnt++;
           if (netif->input( p, netif) != ERR_OK )
           {
             pbuf_free(p);

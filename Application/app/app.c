@@ -32,6 +32,12 @@
 extern struct netif gnetif;
 extern ETH_HandleTypeDef heth;
 
+/* Diagnostic counters from ethernetif.c */
+extern volatile uint32_t ethernetif_rx_int_cnt;
+extern volatile uint32_t ethernetif_rx_frame_cnt;
+extern volatile uint32_t ethernetif_tx_frame_cnt;
+extern volatile uint32_t ethernetif_tx_fail_cnt;
+
 /* Module accessors implemented in modbus_app.c. */
 uint8_t modbus_app_take_pending_save(void);
 uint8_t modbus_app_take_pending_reboot(void);
@@ -71,6 +77,10 @@ volatile struct {
     uint32_t mmc_rx_align_err;     /* MMC: RX alignment error frames         */
     uint32_t port1_bmsr;           /* KSZ port 1 BMSR (link status)          */
     uint32_t port2_bmsr;           /* KSZ port 2 BMSR (link status)          */
+    uint32_t rx_int_cnt;           /* ETH RX interrupts fired                */
+    uint32_t rx_frame_cnt;         /* frames passed to LwIP                  */
+    uint32_t tx_frame_cnt;         /* frames sent by LwIP                    */
+    uint32_t tx_fail_cnt;          /* TX errors                              */
 } dbg;
 
 /* ---------------------------------------------------------------------------
@@ -267,6 +277,10 @@ void app_run(void)
           HAL_ETH_ReadPHYRegister(&heth, 1, 1, &v); dbg.port1_bmsr = v;
           HAL_ETH_ReadPHYRegister(&heth, 2, 1, &v); dbg.port2_bmsr = v;
         }
+        dbg.rx_int_cnt   = ethernetif_rx_int_cnt;
+        dbg.rx_frame_cnt = ethernetif_rx_frame_cnt;
+        dbg.tx_frame_cnt = ethernetif_tx_frame_cnt;
+        dbg.tx_fail_cnt  = ethernetif_tx_fail_cnt;
         dbg.boot_stage    = 4;
         update_led_state_from_traffic();
 
