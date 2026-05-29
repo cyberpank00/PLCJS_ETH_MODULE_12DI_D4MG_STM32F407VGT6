@@ -103,17 +103,18 @@ Reset_Handler
 
 1. `settings_init()` — читает settings из Flash sector 11 (`0x080E0000`), проверяет magic + version + CRC32. Если невалидно — заполняет дефолтами.
 2. `led_module_init(settings.led_mode)` — STAT_LED стартует в состоянии `LED_STATE_NO_POLLING` (1 импульс / 3 с).
-3. `button_wait_held(BUTTON_HOLD_FOR_FACTORY_RESET_MS)` — если `FACT_RES` держали ≥ 2000 мс при старте, выполняется `LED_STATE_FACTORY_RESET` (10 миганий) → `settings_reset_to_defaults()` → `settings_save()` → `NVIC_SystemReset()`.
-4. `di_module_init(settings.di_filter_ms)` — таблица 12 пинов, обнуление счётчиков.
-5. `modbus_app_init()` + `modbus_tcp_server_start(...)` — запускает задачу Modbus TCP-сервера на сконфигурированном порту.
-6. **Главный цикл** (каждые 100 мс, внутри той же defaultTask):
+3. **`osThreadNew(led_task, ...)`** — задача STAT_LED поднимается *до* проверки кнопки, чтобы factory-reset burst (10 коротких миганий) был виден на железе.
+4. `button_wait_held(BUTTON_HOLD_FOR_FACTORY_RESET_MS)` — если `FACT_RES` держали ≥ 2000 мс при старте, выполняется `perform_factory_reset()`: `settings_reset_to_defaults()` → `settings_save()` (Flash erase сектора 11, ~1–2 с — CPU стоит) → `LED_STATE_FACTORY_RESET` (10 миганий) → `osDelay`-ожидание 3.5 с → `NVIC_SystemReset()`. Save выполняется **до** запуска burst, поэтому стирание Flash не «съедает» начало паттерна.
+5. `di_module_init(settings.di_filter_ms)` — таблица 12 пинов, обнуление счётчиков.
+6. `modbus_app_init()` + `modbus_tcp_server_start(...)` — запускает задачу Modbus TCP-сервера на сконфигурированном порту.
+7. **Главный цикл** (каждые 100 мс, внутри той же defaultTask):
    * `HAL_IWDG_Refresh()`
    * Обновление диагностических счётчиков (`dbg`)
    * `update_led_state_from_traffic()` — проверяет link → client → traffic → выбирает LED-состояние
    * Обработка отложенных команд от Modbus:
      * `pending_save` → `HAL_IWDG_Refresh()` + `settings_save()`
      * `pending_reboot` → `osDelay(200)` → `NVIC_SystemReset()`
-     * `pending_factory_reset` → 10 миганий → `settings_reset_to_defaults()` → `save` → `reset`
+     * `pending_factory_reset` → `perform_factory_reset()` (тот же путь, что и кнопка)
 
 ### 3.3. Параллельные задачи
 
@@ -280,8 +281,8 @@ STM32F4 ETH DMA вычисляет контрольные суммы при от
 ## 8. Кнопка FACT_RES
 
 * Удержание `FACT_RES` ≥ 2000 мс **при подаче питания** → factory reset:
-  1. STAT_LED делает 10 миганий
-  2. `settings_t` заменяется дефолтами
+  1. `settings_t` заменяется дефолтами и сразу сохраняется во Flash (sector 11)
+  2. STAT_LED делает 10 коротких миганий (`LED_STATE_FACTORY_RESET`, one-shot)
   3. Запись в Flash
   4. `NVIC_SystemReset()`
 * Удержание уже после старта **не реагирует** (намеренно — чтобы случайное нажатие в эксплуатации не сбросило настройки).
