@@ -120,14 +120,25 @@ static void led_task(void* arg)
 
 /* ---------------------------------------------------------------------------
  * Factory reset routine
+ *
+ * Order matters: commit defaults to Flash first (HAL_FLASH erase of sector 11
+ * blocks the CPU and prevents the LED task from running for ~1-2 s), then
+ * play the visual confirmation burst, then reboot. The LED task must already
+ * be running when this routine is entered (see app_run()).
  * ------------------------------------------------------------------------- */
 static void perform_factory_reset(void)
 {
-    led_module_signal_factory_reset();
+    /* Reset and persist defaults to Flash. */
     settings_reset_to_defaults();
-    (void)settings_save();
+    dbg.save_ok = settings_save() ? 1u : 0u;
+    dbg.save_count++;
 
-    /* Give the LED time to play the burst (10 short pulses) before reboot. */
+    /* Start the 10-pulse confirmation burst. The LED task drives it on its
+     * own 10 ms tick - we only need to wait long enough for it to finish. */
+    led_module_signal_factory_reset();
+
+    /* Total burst time = 10 * (LED_PULSE_ON_MS + LED_PULSE_GAP_MS) = 2000 ms.
+     * Use 3500 ms to leave margin for jitter and the final off-state. */
     const uint32_t deadline = HAL_GetTick() + 3500u;
     while (HAL_GetTick() < deadline) {
         HAL_IWDG_Refresh(&hiwdg);
@@ -203,18 +214,25 @@ void app_run(void)
     memcpy(dbg.netmask, s->netmask, 4);
     memcpy(dbg.gateway, s->gateway, 4);
 
+    /* Initialise the LED module and spawn its task BEFORE the button check.
+     * The factory-reset burst (10 short blinks) is driven by led_module_tick()
+     * which runs from led_task; if the task is not yet running, the burst is
+     * silently dropped. */
+    led_module_init((uint8_t)s->led_mode);
+    const osThreadAttr_t led_attr_early = {
+        .name = "LED", .stack_size = 256, .priority = osPriorityLow
+    };
+    osThreadNew(led_task, NULL, &led_attr_early);
+
     /* If the FACT_RES button is held at startup, blank-load defaults. We do
      * this synchronously here so that the rest of the boot uses defaults. */
     if (button_wait_held(BUTTON_HOLD_FOR_FACTORY_RESET_MS)) {
-        /* Initialise the LED first so that the burst is visible. */
-        led_module_init((uint8_t)s->led_mode);
         perform_factory_reset();
         /* Not reached. */
     }
 
-    /* Initialise hardware drivers. */
+    /* Initialise the remaining hardware drivers. */
     di_module_init(s->di_filter_ms);
-    led_module_init((uint8_t)s->led_mode);
     modbus_app_init();
 
     /* Apply network configuration (static or DHCP). */
@@ -256,16 +274,13 @@ void app_run(void)
         dbg.eth_maccr = ETH->MACCR;
     }
 
-    /* Spawn periodic tasks. */
+    /* Spawn the DI sampling task. The LED task was started earlier so that
+     * the factory-reset burst is visible during the boot-time button-hold
+     * path (see above). */
     const osThreadAttr_t di_attr  = {
         .name = "DI", .stack_size = 384, .priority = osPriorityHigh
     };
     osThreadNew(di_task, NULL, &di_attr);
-
-    const osThreadAttr_t led_attr = {
-        .name = "LED", .stack_size = 256, .priority = osPriorityLow
-    };
-    osThreadNew(led_task, NULL, &led_attr);
 
     /* Spawn Modbus TCP server. */
     modbus_tcp_server_start();
