@@ -133,12 +133,15 @@ static void perform_factory_reset(void)
     dbg.save_ok = settings_save() ? 1u : 0u;
     dbg.save_count++;
 
-    /* Start the 10-pulse confirmation burst. The LED task drives it on its
-     * own 10 ms tick - we only need to wait long enough for it to finish. */
+    /* Enter the sticky LED_STATE_FACTORY_RESET — the LED task drives the
+     * configurable periodic ON/OFF blink on its 10 ms tick until the reboot
+     * below. Default cadence is 100 ms ON / 100 ms OFF, configurable via
+     * led_module_set_factory_reset_timing(). */
     led_module_signal_factory_reset();
 
-    /* Total burst time = 10 * (LED_PULSE_ON_MS + LED_PULSE_GAP_MS) = 2000 ms.
-     * Use 3500 ms to leave margin for jitter and the final off-state. */
+    /* 3.5 s wait — long enough for the operator to see the indication at
+     * the default 5 Hz cadence (and reasonable headroom at slower settings).
+     * The LED keeps blinking the whole time. */
     const uint32_t deadline = HAL_GetTick() + 3500u;
     while (HAL_GetTick() < deadline) {
         HAL_IWDG_Refresh(&hiwdg);

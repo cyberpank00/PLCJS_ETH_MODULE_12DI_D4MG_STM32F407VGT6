@@ -4,33 +4,41 @@
   * @brief   Time-triggered LED state machine. The driver consumes a fixed
   *          tick period (typically 10 ms) and emits a blink pattern that
   *          depends on the selected operating mode and reported device state.
+  *
+  *          LED_STATE_FACTORY_RESET uses its own independent periodic blink
+  *          path with configurable T_ON and T_OFF (see
+  *          led_module_set_factory_reset_timing). All other states share the
+  *          existing burst-with-gap pattern engine driven by led_pattern_t.
   ******************************************************************************
   */
 
 #include "led_module.h"
+
+#include <stddef.h>
 
 #include "main.h"
 #include "settings.h"
 #include "stm32f4xx_hal.h"
 
 /* ---------------------------------------------------------------------------
- * Pattern timings, milliseconds
+ * Pattern timings, milliseconds (burst-style states: NO_POLLING, POLLING,
+ * NO_LINK). LED_STATE_FACTORY_RESET timings are NOT defined here — see
+ * s_freset_on_ms / s_freset_off_ms below and the public setter.
  * ------------------------------------------------------------------------- */
 #define LED_PULSE_ON_MS         50u
 #define LED_PULSE_GAP_MS        150u    /* off-time between pulses inside one burst */
 
 #define LED_NOPOLL_PERIOD_MS    3000u
 #define LED_POLLING_PERIOD_MS   1500u
-#define LED_FRESET_PERIOD_MS    250u    /* purely cosmetic for reset burst */
 
 #define LED_NOPOLL_PULSES       1u
 #define LED_POLLING_PULSES      2u
-#define LED_FRESET_PULSES       10u
 #define LED_NOLINK_PULSES       3u
 #define LED_NOLINK_PERIOD_MS    3000u
 
 /* ---------------------------------------------------------------------------
- * Internal state
+ * Internal state for the shared burst-pattern engine (NO_POLLING / POLLING /
+ * NO_LINK). FACT_RESET has its own state below.
  * ------------------------------------------------------------------------- */
 typedef struct {
     uint16_t pulses;            /* pulses in the current burst         */
@@ -39,13 +47,17 @@ typedef struct {
     uint16_t timer_ms;          /* time elapsed in current sub-state   */
     uint8_t  on_phase;          /* 1 = ON, 0 = OFF                     */
     uint8_t  finished_burst;    /* when set, we are in the trailing gap*/
-    uint8_t  one_shot;          /* set during factory-reset burst      */
 } led_pattern_t;
 
-static uint8_t        s_mode = LED_MODE_STATE_MACHINE;
+static uint8_t        s_mode  = LED_MODE_STATE_MACHINE;
 static led_state_t    s_state = LED_STATE_NO_POLLING;
-static led_state_t    s_pending_state_after_oneshot = LED_STATE_NO_POLLING;
 static led_pattern_t  s_pattern;
+
+/* Dedicated state for LED_STATE_FACTORY_RESET — independent ON/OFF blink. */
+static uint16_t s_freset_on_ms    = LED_FRESET_DEFAULT_ON_MS;
+static uint16_t s_freset_off_ms   = LED_FRESET_DEFAULT_OFF_MS;
+static uint16_t s_freset_timer_ms = 0u;
+static uint8_t  s_freset_on_phase = 0u;
 
 /* ---------------------------------------------------------------------------
  * Helpers
@@ -56,27 +68,23 @@ static inline void led_set(bool on)
                       on ? GPIO_PIN_SET : GPIO_PIN_RESET);
 }
 
-static void led_load_pattern(led_state_t st, uint8_t one_shot)
+static void led_load_pattern(led_state_t st)
 {
     s_pattern.pulse_idx      = 0u;
     s_pattern.timer_ms       = 0u;
     s_pattern.on_phase       = 0u;
     s_pattern.finished_burst = 0u;
-    s_pattern.one_shot       = one_shot;
 
     switch (st) {
     case LED_STATE_POLLING:
         s_pattern.pulses    = LED_POLLING_PULSES;
         s_pattern.period_ms = LED_POLLING_PERIOD_MS;
         break;
-    case LED_STATE_FACTORY_RESET:
-        s_pattern.pulses    = LED_FRESET_PULSES;
-        s_pattern.period_ms = LED_FRESET_PERIOD_MS;
-        break;
     case LED_STATE_NO_LINK:
         s_pattern.pulses    = LED_NOLINK_PULSES;
         s_pattern.period_ms = LED_NOLINK_PERIOD_MS;
         break;
+    case LED_STATE_FACTORY_RESET:
     case LED_STATE_NO_POLLING:
     default:
         s_pattern.pulses    = LED_NOPOLL_PULSES;
@@ -92,9 +100,13 @@ static void led_load_pattern(led_state_t st, uint8_t one_shot)
  * ------------------------------------------------------------------------- */
 void led_module_init(uint8_t mode)
 {
-    s_mode = mode;
+    s_mode  = mode;
     s_state = LED_STATE_NO_POLLING;
-    led_load_pattern(s_state, 0u);
+
+    s_freset_timer_ms = 0u;
+    s_freset_on_phase = 0u;
+
+    led_load_pattern(s_state);
 
     if (mode == LED_MODE_ALW_ON) {
         led_set(true);
@@ -109,12 +121,19 @@ void led_module_set_mode(uint8_t mode)
         return;
     }
     s_mode = mode;
+
+    /* FACT_RESET is a critical indicator — it must remain visible until the
+     * reboot regardless of the requested mode. */
+    if (s_state == LED_STATE_FACTORY_RESET) {
+        return;
+    }
+
     if (mode == LED_MODE_ALW_ON) {
         led_set(true);
     } else if (mode == LED_MODE_ALW_OFF) {
         led_set(false);
     } else {
-        led_load_pattern(s_state, 0u);
+        led_load_pattern(s_state);
     }
 }
 
@@ -125,9 +144,12 @@ uint8_t led_module_get_mode(void)
 
 void led_module_set_state(led_state_t state)
 {
-    if (s_pattern.one_shot) {
-        /* defer the change until the burst finishes */
-        s_pending_state_after_oneshot = state;
+    /* FACT_RESET is sticky — no transitions out until reboot. */
+    if (s_state == LED_STATE_FACTORY_RESET) {
+        return;
+    }
+    if (state == LED_STATE_FACTORY_RESET) {
+        led_module_signal_factory_reset();
         return;
     }
     if (state == s_state) {
@@ -135,14 +157,33 @@ void led_module_set_state(led_state_t state)
     }
     s_state = state;
     if (s_mode == LED_MODE_STATE_MACHINE) {
-        led_load_pattern(s_state, 0u);
+        led_load_pattern(s_state);
     }
 }
 
 void led_module_signal_factory_reset(void)
 {
-    s_pending_state_after_oneshot = s_state;
-    led_load_pattern(LED_STATE_FACTORY_RESET, 1u);
+    if (s_state == LED_STATE_FACTORY_RESET) {
+        return; /* already running */
+    }
+    s_state            = LED_STATE_FACTORY_RESET;
+    s_freset_timer_ms  = 0u;
+    s_freset_on_phase  = 1u;
+    led_set(true);
+}
+
+void led_module_set_factory_reset_timing(uint16_t on_ms, uint16_t off_ms)
+{
+    if (on_ms  < LED_FRESET_MIN_MS) on_ms  = LED_FRESET_MIN_MS;
+    if (off_ms < LED_FRESET_MIN_MS) off_ms = LED_FRESET_MIN_MS;
+    s_freset_on_ms  = on_ms;
+    s_freset_off_ms = off_ms;
+}
+
+void led_module_get_factory_reset_timing(uint16_t *on_ms, uint16_t *off_ms)
+{
+    if (on_ms  != NULL) *on_ms  = s_freset_on_ms;
+    if (off_ms != NULL) *off_ms = s_freset_off_ms;
 }
 
 /* ---------------------------------------------------------------------------
@@ -150,15 +191,31 @@ void led_module_signal_factory_reset(void)
  * ------------------------------------------------------------------------- */
 void led_module_tick(uint16_t tick_ms)
 {
+    /* FACT_RESET runs on its own independent periodic blink and overrides
+     * the current mode (ALW_ON / ALW_OFF do not silence it). */
+    if (s_state == LED_STATE_FACTORY_RESET) {
+        s_freset_timer_ms = (uint16_t)(s_freset_timer_ms + tick_ms);
+        const uint16_t threshold = s_freset_on_phase
+                                       ? s_freset_on_ms
+                                       : s_freset_off_ms;
+        if (s_freset_timer_ms >= threshold) {
+            s_freset_on_phase  = (uint8_t)(!s_freset_on_phase);
+            s_freset_timer_ms  = 0u;
+            led_set(s_freset_on_phase != 0u);
+        }
+        return;
+    }
+
     if (s_mode == LED_MODE_ALW_ON) {
         led_set(true);
         return;
     }
-    if (s_mode == LED_MODE_ALW_OFF && !s_pattern.one_shot) {
+    if (s_mode == LED_MODE_ALW_OFF) {
         led_set(false);
         return;
     }
 
+    /* Burst-style pattern engine for NO_POLLING / POLLING / NO_LINK. */
     s_pattern.timer_ms = (uint16_t)(s_pattern.timer_ms + tick_ms);
 
     if (!s_pattern.finished_burst) {
@@ -191,12 +248,7 @@ void led_module_tick(uint16_t tick_ms)
         burst_duration + (uint32_t)s_pattern.timer_ms;
 
     if (elapsed_total >= s_pattern.period_ms) {
-        if (s_pattern.one_shot) {
-            led_load_pattern(s_pending_state_after_oneshot, 0u);
-            s_state = s_pending_state_after_oneshot;
-            return;
-        }
         /* Restart the same burst. */
-        led_load_pattern(s_state, 0u);
+        led_load_pattern(s_state);
     }
 }
