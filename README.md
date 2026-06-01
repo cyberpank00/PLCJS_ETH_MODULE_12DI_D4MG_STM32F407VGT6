@@ -103,8 +103,8 @@ Reset_Handler
 
 1. `settings_init()` — читает settings из Flash sector 11 (`0x080E0000`), проверяет magic + version + CRC32. Если невалидно — заполняет дефолтами.
 2. `led_module_init(settings.led_mode)` — STAT_LED стартует в состоянии `LED_STATE_NO_POLLING` (1 импульс / 3 с).
-3. **`osThreadNew(led_task, ...)`** — задача STAT_LED поднимается *до* проверки кнопки, чтобы factory-reset burst (10 коротких миганий) был виден на железе.
-4. `button_wait_held(BUTTON_HOLD_FOR_FACTORY_RESET_MS)` — если `FACT_RES` держали ≥ 2000 мс при старте, выполняется `perform_factory_reset()`: `settings_reset_to_defaults()` → `settings_save()` (Flash erase сектора 11, ~1–2 с — CPU стоит) → `LED_STATE_FACTORY_RESET` (10 миганий) → `osDelay`-ожидание 3.5 с → `NVIC_SystemReset()`. Save выполняется **до** запуска burst, поэтому стирание Flash не «съедает» начало паттерна.
+3. **`osThreadNew(led_task, ...)`** — задача STAT_LED поднимается *до* проверки кнопки, чтобы factory-reset мигание было видно на железе.
+4. `button_wait_held(BUTTON_HOLD_FOR_FACTORY_RESET_MS)` — если `FACT_RES` держали ≥ 2000 мс при старте, выполняется `perform_factory_reset()`: `settings_reset_to_defaults()` → `settings_save()` (Flash erase сектора 11, ~1–2 с — CPU стоит) → `LED_STATE_FACTORY_RESET` (непрерывный периодический ON/OFF, свои T_ON / T_OFF) → `osDelay`-ожидание 3.5 с → `NVIC_SystemReset()`. Save выполняется **до** запуска мигания, поэтому стирание Flash не «съедает» начало паттерна.
 5. `di_module_init(settings.di_filter_ms)` — таблица 12 пинов, обнуление счётчиков.
 6. `modbus_app_init()` + `modbus_tcp_server_start(...)` — запускает задачу Modbus TCP-сервера на сконфигурированном порту.
 7. **Главный цикл** (каждые 100 мс, внутри той же defaultTask):
@@ -171,7 +171,7 @@ Slave id по умолчанию = **1** (для TCP несущественен;
 | 116    | `USE_DHCP`       | R/W   | 0 / 1, по умолчанию 1            | после save+reboot |
 | 117    | `TRIG_SAVE`      | W     | запись `0xA5A5` → save в Flash   | моментально |
 | 118    | `TRIG_REBOOT`    | W     | запись `0xB00B` → soft reset     | через ~200 мс |
-| 119    | `TRIG_FACTORY_RESET` | W | запись `0xDEAD` → defaults + save + reset | через ~2.5 с (с миганием) |
+| 119    | `TRIG_FACTORY_RESET` | W | запись `0xDEAD` → defaults + save + reset | через ~3.5 с (с миганием LED_STATE_FACTORY_RESET) |
 
 > **Важно:** сетевые параметры (IP/mask/gw/port/DHCP) записываются в RAM-кэш и применяются **только после** записи `TRIG_SAVE` + `TRIG_REBOOT` (или `TRIG_FACTORY_RESET`). Так защищены от случайной потери связи.
 
@@ -267,9 +267,25 @@ STM32F4 ETH DMA вычисляет контрольные суммы при от
 | `LED_STATE_NO_LINK`    | 3 коротких импульса / 3 с        | Нет физического link ни на одном порту KSZ8863 |
 | `LED_STATE_NO_POLLING`  | 1 короткий импульс / 3 с         | Link есть, но нет TCP-сессии с Modbus-мастером |
 | `LED_STATE_POLLING`     | 2 коротких импульса / 1.5 с      | TCP-сессия активна, идут запросы     |
-| `LED_STATE_FACTORY_RESET`| 10 коротких импульсов (one-shot) | Идёт factory reset                   |
+| `LED_STATE_FACTORY_RESET`| **непрерывный периодический** ON/OFF, **настраиваемый** (дефолт 100 мс / 100 мс) | Идёт factory reset (sticky до перезагрузки) |
 
-«Короткий импульс» = 100 мс ON / 200 мс OFF (см. `led_module.c`).
+«Короткий импульс» для burst-паттернов NO_POLLING / POLLING / NO_LINK = 50 мс ON / 150 мс OFF (см. `LED_PULSE_ON_MS` / `LED_PULSE_GAP_MS` в `led_module.c`).
+
+Паттерн `LED_STATE_FACTORY_RESET` — независимый от burst-паттернов, простой периодический ON/OFF/ON/OFF. T_ON и T_OFF меняются в runtime API модуля:
+
+```c
+/* led_module.h */
+void     led_module_set_factory_reset_timing(uint16_t on_ms, uint16_t off_ms);
+void     led_module_get_factory_reset_timing(uint16_t *on_ms, uint16_t *off_ms);
+#define  LED_FRESET_DEFAULT_ON_MS   100u
+#define  LED_FRESET_DEFAULT_OFF_MS  100u
+#define  LED_FRESET_MIN_MS          10u   /* clamp нижней границы */
+```
+
+* Дефолт: 100 мс ON / 100 мс OFF (5 Гц) — визуально отлично от burst-паттернов.
+* Значения < `LED_FRESET_MIN_MS` (10 мс) принудительно поднимаются до 10 мс (чтобы FSM не крутилась на каждом тике).
+* Новые значения применяются со следующей полуволны (не прерывают текущий ON/OFF).
+* Состояние sticky — после входа в `LED_STATE_FACTORY_RESET` мерцание идёт до перезагрузки и перебивает `ALW_ON` / `ALW_OFF`.
 
 Приоритет выбора состояния в `update_led_state_from_traffic()`:
 1. `!g_eth_any_link_up` → **NO_LINK**
@@ -281,9 +297,9 @@ STM32F4 ETH DMA вычисляет контрольные суммы при от
 ## 8. Кнопка FACT_RES
 
 * Удержание `FACT_RES` ≥ 2000 мс **при подаче питания** → factory reset:
-  1. `settings_t` заменяется дефолтами и сразу сохраняется во Flash (sector 11)
-  2. STAT_LED делает 10 коротких миганий (`LED_STATE_FACTORY_RESET`, one-shot)
-  3. Запись в Flash
+  1. `settings_t` заменяется дефолтами и сразу сохраняется во Flash (sector 11, стирание ~1–2 с)
+  2. STAT_LED входит в `LED_STATE_FACTORY_RESET` и мерцает с настраиваемым T_ON / T_OFF до перезагрузки
+  3. `osDelay`-ожидание 3.5 с (оператор видит индикацию)
   4. `NVIC_SystemReset()`
 * Удержание уже после старта **не реагирует** (намеренно — чтобы случайное нажатие в эксплуатации не сбросило настройки).
 * Длительность удержания меняется константой `BUTTON_HOLD_FOR_FACTORY_RESET_MS` в `Application/button/button_module.h`.

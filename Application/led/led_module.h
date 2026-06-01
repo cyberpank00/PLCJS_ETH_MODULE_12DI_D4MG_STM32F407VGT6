@@ -4,14 +4,22 @@
   * @brief   STAT_LED state machine driver.
   *
   *  Modes:
-  *    - LED_MODE_ALW_OFF:        LED is permanently off.
-  *    - LED_MODE_ALW_ON:         LED is permanently on.
+  *    - LED_MODE_ALW_OFF:        LED is permanently off (overridden by
+  *                               LED_STATE_FACTORY_RESET while it is active).
+  *    - LED_MODE_ALW_ON:         LED is permanently on (overridden by
+  *                               LED_STATE_FACTORY_RESET while it is active).
   *    - LED_MODE_STATE_MACHINE:  LED follows the device state.
   *
   *  States in LED_MODE_STATE_MACHINE:
   *    - LED_STATE_NO_POLLING:     1 short blink every 3 s.
   *    - LED_STATE_POLLING:        2 short blinks every 1.5 s.
-  *    - LED_STATE_FACTORY_RESET:  10 short blinks (one-shot, then revert).
+  *    - LED_STATE_NO_LINK:        3 short blinks every 3 s.
+  *    - LED_STATE_FACTORY_RESET:  continuous periodic ON/OFF blink with
+  *                                independently configurable T_ON and T_OFF
+  *                                (see led_module_set_factory_reset_timing()).
+  *                                Sticky: once entered, blinks until reboot
+  *                                and overrides any subsequent state / mode
+  *                                change.
   ******************************************************************************
   */
 #ifndef APPLICATION_LED_MODULE_H
@@ -23,6 +31,11 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* Default and clamp values for the LED_STATE_FACTORY_RESET blink pattern. */
+#define LED_FRESET_DEFAULT_ON_MS    100u
+#define LED_FRESET_DEFAULT_OFF_MS   100u
+#define LED_FRESET_MIN_MS           10u
 
 typedef enum {
     LED_STATE_NO_POLLING     = 0,
@@ -43,8 +56,23 @@ uint8_t led_module_get_mode(void);
 /** Set the device state used by the state-machine mode. */
 void led_module_set_state(led_state_t state);
 
-/** Trigger the factory-reset blink burst (one-shot). */
+/**
+ * Enter LED_STATE_FACTORY_RESET and start the configurable periodic blink.
+ * The state is sticky: subsequent set_state() / set_mode() calls are ignored
+ * until the next boot. Override the timings with
+ * led_module_set_factory_reset_timing() before calling this if needed.
+ */
 void led_module_signal_factory_reset(void);
+
+/**
+ * Configure the LED_STATE_FACTORY_RESET ON / OFF times, milliseconds.
+ * Each value is clamped to at least LED_FRESET_MIN_MS to keep the FSM
+ * from spinning. Takes effect on the next half-cycle.
+ */
+void led_module_set_factory_reset_timing(uint16_t on_ms, uint16_t off_ms);
+
+/** Read the active LED_STATE_FACTORY_RESET ON / OFF times. NULL-safe. */
+void led_module_get_factory_reset_timing(uint16_t *on_ms, uint16_t *off_ms);
 
 /**
  * Periodic tick — call from a single task with a fixed period. The default
