@@ -353,6 +353,12 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
 
   pbuf_ref(p);
 
+  /* Always release completed TX descriptors before attempting to send.
+   * Without this, descriptors accumulate (PacketAddress != NULL) and after
+   * ETH_TX_DESC_CNT frames the transmitter reports BUSY, blocking the
+   * tcpip thread until the semaphore-based retry path recovers.  */
+  HAL_ETH_ReleaseTxPacket(&heth);
+
   do
   {
     if(HAL_ETH_Transmit_IT(&heth, &TxConfig) == HAL_OK)

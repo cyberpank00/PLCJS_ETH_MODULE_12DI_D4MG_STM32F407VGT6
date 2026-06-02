@@ -33,7 +33,7 @@ extern "C" {
 #endif
 
 /* Default and clamp values for the LED_STATE_FACTORY_RESET blink pattern. */
-#define LED_FRESET_DEFAULT_ON_MS    100u
+#define LED_FRESET_DEFAULT_ON_MS    300u
 #define LED_FRESET_DEFAULT_OFF_MS   100u
 #define LED_FRESET_MIN_MS           10u
 

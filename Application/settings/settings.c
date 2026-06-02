@@ -20,8 +20,8 @@
 /* ---------------------------------------------------------------------------
  * Storage location
  * ------------------------------------------------------------------------- */
-#define SETTINGS_FLASH_SECTOR   FLASH_SECTOR_11
-#define SETTINGS_FLASH_ADDR     0x080E0000u
+#define SETTINGS_FLASH_SECTOR   FLASH_SECTOR_10
+#define SETTINGS_FLASH_ADDR     0x080C0000u
 
 /* ---------------------------------------------------------------------------
  * Static state
