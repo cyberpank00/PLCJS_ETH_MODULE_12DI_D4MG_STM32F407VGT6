@@ -55,9 +55,13 @@ ENTRY(Reset_Handler)
 /* Specify the memory areas */
 MEMORY
 {
-RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 128K
+/* Top 16 bytes reserved for the no-init boot-request flag shared with the
+ * bootloader (0x2001FFF0). Must match the bootloader linker script. */
+RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 0x1FFF0
 CCMRAM (xrw)      : ORIGIN = 0x10000000, LENGTH = 64K
-FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 1024K
+/* Application region: sectors 6-7 (256 KB). The first 128 KB (sectors 0-4)
+ * hold the bootloader, sector 5 is metadata. See bootloader flash_map.h. */
+FLASH (rx)      : ORIGIN = 0x8040000, LENGTH = 256K
 }
 
 /* Highest address of the user mode stack */

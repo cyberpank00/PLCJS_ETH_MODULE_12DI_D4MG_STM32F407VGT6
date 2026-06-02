@@ -46,6 +46,14 @@ extern "C" {
 #define MODBUS_TRIG_SAVE            0xA5A5u
 #define MODBUS_TRIG_REBOOT          0xB00Bu
 #define MODBUS_TRIG_FACTORY_RESET   0xDEADu
+/* Reboot into the bootloader (for OTA). Written to MB_HR_TRIG_REBOOT (118). */
+#define MODBUS_TRIG_BOOTLOADER      0xB007u
+
+/* No-init RAM cell shared with the bootloader: writing BOOT_REQUEST_MAGIC and
+ * resetting makes the bootloader stay active. Address/magic MUST match the
+ * bootloader (flash_map.h) and the RAM reservation in both linker scripts. */
+#define BOOT_REQUEST_FLAG_ADDR      0x2001FFF0u
+#define BOOT_REQUEST_MAGIC          0xB007CAFEu
 
 /* Holding register addresses, exposed for unit tests / introspection. */
 #define MB_HR_DI_FILTER_MS          100u

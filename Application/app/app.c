@@ -45,6 +45,7 @@ extern volatile uint8_t g_eth_any_link_up;
 uint8_t modbus_app_take_pending_save(void);
 uint8_t modbus_app_take_pending_reboot(void);
 uint8_t modbus_app_take_pending_factory_reset(void);
+uint8_t modbus_app_take_pending_bootloader(void);
 uint32_t modbus_app_last_request_tick(void);
 
 /* Latest result of the boot-time KSZ8863 SMI self-test. Exposed as a flag
@@ -323,6 +324,18 @@ void app_run(void)
         if (modbus_app_take_pending_factory_reset()) {
             perform_factory_reset();
             /* Not reached. */
+        }
+        if (modbus_app_take_pending_bootloader()) {
+            /* Ask the bootloader to stay active after the reset: write the
+             * shared magic into the no-init RAM cell, then reset. The cell
+             * survives a warm reset; the bootloader consumes it on entry. */
+            *(volatile uint32_t *)BOOT_REQUEST_FLAG_ADDR = BOOT_REQUEST_MAGIC;
+            const uint32_t bl_deadline = HAL_GetTick() + 200u;
+            while (HAL_GetTick() < bl_deadline) {
+                HAL_IWDG_Refresh(&hiwdg);
+                osDelay(20);
+            }
+            NVIC_SystemReset();
         }
         if (modbus_app_take_pending_reboot()) {
             const uint32_t deadline = HAL_GetTick() + 200u;
