@@ -7,10 +7,17 @@
  * vector table padding).  The bootloader reads this header to verify product
  * identity before accepting or running the image.
  *
- * product_id, hw_revision, and fw_version are baked in at compile time via
- * CMake -D flags (FW_PRODUCT_ID, FW_HW_REVISION, FW_VERSION_VALUE).
- * image_size and image_crc32 are filled in by tools/gen_app_bin.py after the
- * binary is produced.
+ * All fields are baked in at compile time via CMake -D flags.
+ * CRC32 and image size are NOT in the header — they travel in OTA metadata.
+ *
+ * hw_revision encoding: (major << 8) | minor
+ *   major — increments on MCU pinout changes (requires new FW major)
+ *   minor — increments on non-pinout HW changes (FW-compatible)
+ *   patch  — cosmetic PCB changes, not stored in firmware
+ *
+ * fw_version encoding: (major << 8) | minor
+ *   major — must equal hw_revision major for OTA acceptance
+ *   minor — increments on firmware-only changes
  *
  * Layout must match fw_header_t in the bootloader's app_validate.h exactly.
  */
@@ -31,30 +38,28 @@ extern "C" {
 #define FW_HEADER_OFFSET        0x200u
 
 /**
- * Firmware image header (packed, 36 bytes total).
+ * Firmware image header (packed, 28 bytes total).
  * Placed at APP_FLASH_BASE + FW_HEADER_OFFSET in the binary.
  */
 typedef struct __attribute__((packed)) {
     uint32_t magic;               /* FW_IMAGE_MAGIC ("PLCJ")              */
-    uint32_t product_id;          /* Module product identifier            */
-    uint16_t hw_revision;         /* Hardware revision                    */
+    uint32_t product_id;          /* Module type identifier (exact match) */
+    uint16_t hw_revision;         /* (major << 8) | minor                 */
     uint16_t reserved0;
-    uint32_t fw_version;          /* 0xMMmmpp (major/minor/patch)         */
-    uint32_t image_size;          /* Total image size in bytes            */
-    uint32_t image_crc32;         /* CRC32 of binary with this field = 0  */
+    uint32_t fw_version;          /* (major << 8) | minor                 */
     uint32_t vector_table_offset; /* Offset of vector table (always 0)    */
     uint32_t reserved1[2];
 } fw_header_t;
 
 /* Compile-time defaults — overridden via CMake -D flags. */
 #ifndef FW_PRODUCT_ID
-#define FW_PRODUCT_ID   0x12D1D4A0u
+#define FW_PRODUCT_ID    0x12D1D4A0u
 #endif
 #ifndef FW_HW_REVISION
-#define FW_HW_REVISION  1u
+#define FW_HW_REVISION   0x0101u  /* hw:01.01 */
 #endif
 #ifndef FW_VERSION_VALUE
-#define FW_VERSION_VALUE 0x00010000u  /* 1.0.0 */
+#define FW_VERSION_VALUE 0x0101u  /* fw:01.01 */
 #endif
 
 /** The single header instance placed in the .fw_header linker section. */

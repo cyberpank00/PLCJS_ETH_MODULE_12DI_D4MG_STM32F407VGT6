@@ -43,11 +43,15 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 )
 
 # ---------- Module identity (overridable per module variant) ---------------
-# Pass -DPRODUCT_ID=0x... / -DHW_REVISION=N / -DFW_VERSION=0x... on the cmake
-# command line to customise the firmware header for each module variant.
+# Pass -DPRODUCT_ID=0x... / -DHW_REVISION=0xMMmm / -DFW_VERSION=0xMMmm on the
+# cmake command line to customise the firmware header for each module variant.
+#
+# HW_REVISION encoding: (major << 8) | minor  →  e.g. hw:01.02 = 0x0102
+# FW_VERSION  encoding: (major << 8) | minor  →  e.g. fw:01.02 = 0x0102
+# OTA acceptance: product_id exact match + hw_revision major byte match.
 set(PRODUCT_ID    "0x12D1D4A0" CACHE STRING "Product ID embedded in fw_header_t")
-set(HW_REVISION   "1"          CACHE STRING "Hardware revision embedded in fw_header_t")
-set(FW_VERSION    "0x00010000" CACHE STRING "Firmware version 0xMMmmpp embedded in fw_header_t")
+set(HW_REVISION   "0x0101"     CACHE STRING "HW revision (major<<8|minor), e.g. hw:01.01 = 0x0101")
+set(FW_VERSION    "0x0101"     CACHE STRING "FW version  (major<<8|minor), e.g. fw:01.01 = 0x0101")
 
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
@@ -100,25 +104,14 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     # Add user defined libraries
 )
 
-# ---------- Post-build: generate app.bin with embedded fw_header_t ----------
-# Requires Python 3.  gen_app_bin.py patches image_size and image_crc32 fields
-# in the .fw_header section so the bootloader can read them without metadata.
-find_program(PYTHON_EXECUTABLE NAMES python3 python)
-if(PYTHON_EXECUTABLE)
-    add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
-        COMMAND ${CMAKE_OBJCOPY} -O binary
-                $<TARGET_FILE:${CMAKE_PROJECT_NAME}>
-                ${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}.bin
-        COMMAND ${CMAKE_SIZE} $<TARGET_FILE:${CMAKE_PROJECT_NAME}>
-        COMMAND ${PYTHON_EXECUTABLE}
-                ${CMAKE_SOURCE_DIR}/tools/gen_app_bin.py
-                --input   ${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}.bin
-                --output  ${CMAKE_BINARY_DIR}/app.bin
-                --product-id  ${PRODUCT_ID}
-                --hw-revision ${HW_REVISION}
-                --fw-version  ${FW_VERSION}
-        COMMENT "Generating app.bin with embedded firmware header"
-    )
-else()
-    message(WARNING "Python not found -- app.bin will not be generated automatically")
-endif()
+# ---------- Post-build: generate .hex and .bin images ---------------------
+add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_SIZE} $<TARGET_FILE:${CMAKE_PROJECT_NAME}>
+    COMMAND ${CMAKE_OBJCOPY} -O ihex
+            $<TARGET_FILE:${CMAKE_PROJECT_NAME}>
+            ${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}.hex
+    COMMAND ${CMAKE_OBJCOPY} -O binary
+            $<TARGET_FILE:${CMAKE_PROJECT_NAME}>
+            ${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}.bin
+    COMMENT "Generating ${CMAKE_PROJECT_NAME}.hex and ${CMAKE_PROJECT_NAME}.bin"
+)
