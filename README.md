@@ -1,64 +1,60 @@
 # PLCJS_ETH_MODULE_12DI_D4MG_STM32F407VGT6
 
-Прошивка модуля **12 дискретных входов** с интерфейсом Ethernet.
-Сбор сигналов с настраиваемой анти-дребезговой фильтрацией, выдача состояний и приём настроек по **Modbus TCP**, конфигурация во внутреннем Flash, кнопка `FACT_RES` для возврата к заводским установкам, светодиод `STAT_LED` как индикатор состояния связи и опроса.
+Основная прошивка Ethernet-модуля PLCJS с 12 дискретными входами на базе `STM32F407VGT6`.
 
----
+Прошивка читает 12 active-low входов, фильтрует дребезг, публикует состояния по `Modbus TCP`, хранит настройки во внутренней Flash, управляет индикатором `STAT_LED`, поддерживает factory reset и программный переход в Ethernet bootloader для OTA-обновления.
 
-## 1. Состав железа
+## Текущий статус
 
-| Узел                  | Чип / Сигнал           | Заметки                                                   |
-|-----------------------|------------------------|-----------------------------------------------------------|
-| MCU                   | STM32F407VGT6          | Cortex-M4F, 168 МГц, 1 МБ Flash, 192 КБ SRAM (128 + 64 CCM)|
-| Ethernet PHY          | KSZ8863MLLI            | Интерфейс RMII; работает как unmanaged switch             |
-| Тактирование PHY      | 50 МГц от REFCLKO_3 → REFCLKI_3 | внутренний генератор PHY                          |
-| Управление PHY        | `ETHRST` (PD11), `ETHINT` (PB1) | Reset / прерывание                                |
-| Дискретные входы      | 12 шт., active-low (на землю), pull-up внутри MCU | см. таблицу пинов ниже              |
-| Кнопка `FACT_RES`     | PC8, active-low        | Заводской сброс по удержанию при старте                   |
-| Светодиод `STAT_LED`  | PC6, active-high       | Индикация состояния модуля                                |
-| Watchdog              | IWDG                   | Prescaler 64, Reload 4095 → timeout ~8.2 с; кикается из главного цикла |
+Прошивка интегрирована с отдельным bootloader-проектом и протестирована на реальном модуле.
 
-### Распиновка дискретных входов
+Проверено:
 
-| Канал (Modbus reg.) | Силкскрин | Пин MCU |
-|---------------------|-----------|---------|
-| 0                   | DI1       | PB3     |
-| 1                   | DI2       | PD7     |
-| 2                   | DI3       | PD6     |
-| 3                   | DI4       | PD5     |
-| 4                   | DI5       | PD4     |
-| 5                   | DI6       | PD3     |
-| 6                   | DI7       | PD2     |
-| 7                   | DI8       | PD1     |
-| 8                   | DI9       | PD0     |
-| 9                   | DI10      | PC12    |
-| 10                  | DI11      | PC11    |
-| 11                  | DI12      | PC10    |
+- сборка `CMake + Ninja`
+- запуск приложения из bootloader
+- `ping` и `Modbus TCP` на рабочем приложении
+- сохранение настроек во Flash и применение после reboot
+- переключение `DHCP <-> static IP`
+- переключение `TCP_PORT 502 <-> 1502`
+- команды `reboot`, `factory reset`, `enter bootloader`
+- все входы `DI1..DI12`
+- LED-паттерны `idle`, `polling`, `no link`, `factory reset`
+- негативные Modbus-сценарии
+- длительный polling / reconnect / ping soak
 
-> Логика инвертирована: на входе появилась 1 → пин притянут к земле → бит DI = 1.
+## Аппаратная платформа
 
-Схема платы — `DOC/Schematic_ETH_12DI_STM32F407.pdf`.
+| Узел | Описание |
+|---|---|
+| MCU | `STM32F407VGT6`, Cortex-M4F |
+| Ethernet | `KSZ8863` Ethernet switch/PHY, RMII |
+| Дискретные входы | 12 входов, active-low, внутренние pull-up MCU |
+| Factory reset | кнопка `FACT_RES`, active-low |
+| Индикация | `STAT_LED`, active-high |
+| Watchdog | `IWDG`, обновляется из основного цикла приложения |
 
----
+## Flash и RAM layout
 
-## 2. Сборка и прошивка
+Приложение собрано как image для работы вместе с bootloader.
 
-Проект сгенерирован STM32CubeMX, сборка через CMake + Ninja с тулчейном **STARM Clang** из STM32CubeCLT.
+| Область | Адрес | Размер | Назначение |
+|---|---:|---:|---|
+| Bootloader | `0x08000000` | 128 KB | sectors 0-4, другой проект |
+| Metadata | `0x08020000` | 128 KB | sector 5, состояние OTA |
+| Application | `0x08040000` | 256 KB | sectors 6-7, эта прошивка |
+| Staging | `0x08080000` | 256 KB | sectors 8-9, OTA staging |
+| Settings | `0x080C0000` | 128 KB | sector 10, настройки приложения |
 
-### Зависимости (Windows)
+RAM:
 
-* [STM32CubeCLT 1.18+](https://www.st.com/en/development-tools/stm32cubeclt.html) — даёт `starm-clang`, `STM32_Programmer_CLI`, GDB-сервер, CMake и Ninja.
-* [Windsurf](https://codeium.com/windsurf) (или VS Code) с расширением **CMake Tools**.
-* (опционально) **STM32 VS Code Extension** от STMicroelectronics — даёт кнопку Flash и интеграцию с ST-Link.
+- основной RAM начинается с `0x20000000`
+- верхние 16 байт зарезервированы под shared boot-request flag
+- shared flag address: `0x2001FFF0`
+- shared flag magic: `0xB007CAFE`
 
-После установки CubeCLT убедитесь, что в `PATH` есть `starm-clang`, `ninja`, `cmake`:
-```powershell
-where starm-clang
-where ninja
-where cmake
-```
+## Сборка
 
-### Сборка
+Требуется STM32CubeCLT с `starm-clang`, `cmake` и `ninja`.
 
 ```powershell
 cmake -S . -B build/Debug -G Ninja `
@@ -67,401 +63,226 @@ cmake -S . -B build/Debug -G Ninja `
 cmake --build build/Debug
 ```
 
-Или просто **Configure → Build (F7)** в Windsurf.
+Основные результаты сборки:
 
-Результат — `build/Debug/PLCJS_ETH_MODULE_12DI_D4MG_STM32F407VGT6.elf`.
+- `build/Debug/PLCJS_ETH_MODULE_12DI_D4MG_STM32F407VGT6.elf`
+- `build/Debug/PLCJS_ETH_MODULE_12DI_D4MG_STM32F407VGT6.hex`
+- `build/Debug/PLCJS_ETH_MODULE_12DI_D4MG_STM32F407VGT6.bin`
+- `build/Debug/app.bin` - OTA image для bootloader
 
-### Прошивка через ST-Link
+## Прошивка
+
+Через ST-Link:
 
 ```powershell
 STM32_Programmer_CLI -c port=SWD -w build/Debug/PLCJS_ETH_MODULE_12DI_D4MG_STM32F407VGT6.elf -v -rst
 ```
 
----
+Через bootloader OTA используется `app.bin` из `build/Debug` и клиент `tools/fw_update.py` из bootloader-репозитория.
 
-## 3. Алгоритм работы
+## Сеть
 
-### 3.1. Запуск
+Настройки сети хранятся во Flash и доступны через Modbus holding registers.
 
-```
-Reset_Handler
-  └ SystemInit → main()
-        ├ HAL_Init        — SysTick 1 кГц
-        ├ SystemClock_Config (HSE+PLL → 168 МГц)
-        ├ MX_GPIO_Init    — все пины из .ioc (DI input+pull-up, FACT_RES, STAT_LED, RMII)
-        ├ MX_DMA / MX_ETH / MX_USART / MX_RTC / MX_FATFS / MX_IWDG
-        ├ MX_FREERTOS_Init  (создаёт defaultTask)
-        └ osKernelStart   ──►  планировщик FreeRTOS
-                                  │
-                                  ▼
-                            StartDefaultTask  (Core/Src/freertos.c)
-                                  ├ MX_LWIP_Init   (поднимает TCP/IP стек)
-                                  └ app_run()      (Application/app/app.c)
-```
+Дефолты:
 
-### 3.2. `app_run()` — оркестратор
-
-1. `settings_init()` — читает settings из Flash sector 11 (`0x080E0000`), проверяет magic + version + CRC32. Если невалидно — заполняет дефолтами.
-2. `led_module_init(settings.led_mode)` — STAT_LED стартует в состоянии `LED_STATE_NO_POLLING` (1 импульс / 3 с).
-3. **`osThreadNew(led_task, ...)`** — задача STAT_LED поднимается *до* проверки кнопки, чтобы factory-reset мигание было видно на железе.
-4. `button_wait_held(BUTTON_HOLD_FOR_FACTORY_RESET_MS)` — если `FACT_RES` держали ≥ 2000 мс при старте, выполняется `perform_factory_reset()`: `settings_reset_to_defaults()` → `settings_save()` (Flash erase сектора 11, ~1–2 с — CPU стоит) → `LED_STATE_FACTORY_RESET` (непрерывный периодический ON/OFF, свои T_ON / T_OFF) → `osDelay`-ожидание 3.5 с → `NVIC_SystemReset()`. Save выполняется **до** запуска мигания, поэтому стирание Flash не «съедает» начало паттерна.
-5. `di_module_init(settings.di_filter_ms)` — таблица 12 пинов, обнуление счётчиков.
-6. `modbus_app_init()` + `modbus_tcp_server_start(...)` — запускает задачу Modbus TCP-сервера на сконфигурированном порту.
-7. **Главный цикл** (каждые 100 мс, внутри той же defaultTask):
-   * `HAL_IWDG_Refresh()`
-   * Обновление диагностических счётчиков (`dbg`)
-   * `update_led_state_from_traffic()` — проверяет link → client → traffic → выбирает LED-состояние
-   * Обработка отложенных команд от Modbus:
-     * `pending_save` → `HAL_IWDG_Refresh()` + `settings_save()`
-     * `pending_reboot` → `osDelay(200)` → `NVIC_SystemReset()`
-     * `pending_factory_reset` → `perform_factory_reset()` (тот же путь, что и кнопка)
-
-### 3.3. Параллельные задачи
-
-| Задача             | Создаёт              | Что делает                                                              |
-|--------------------|----------------------|-------------------------------------------------------------------------|
-| `defaultTask`      | CubeMX               | Хост приложения: тики DI/LED, IWDG, deferred-команды                    |
-| `tcpip_thread`     | LwIP (`MX_LWIP_Init`)| Обработка TCP/IP / ARP / DHCP                                           |
-| `EthIf` thread     | LwIP                 | Чтение пакетов из DMA-буфера ETH                                        |
-| `ethernet_link_thread` | LwIP             | Поллинг KSZ8863 link-статуса каждые 100 мс, debounce 2 с, управление netif up/down |
-| `ModbusSrv`        | `modbus_tcp_server_start` | listen/accept, recv → `nmbs_server_poll` → callback'и → write       |
-
-### 3.4. DI-задача и LED-задача
-
-| Задача     | Период | Что делает |
-|------------|--------|------------|
-| `di_task`  | 1 мс   | `di_module_tick()` — счётчики стабильности, обновление маски |
-| `led_task` | 10 мс  | `led_module_tick(10)` — FSM паттернов STAT_LED |
-
----
-
-## 4. Карта регистров Modbus
-
-Slave id по умолчанию = **1** (для TCP несущественен; задаётся через регистр HR 102).
-Порт по умолчанию = **502** (HR 103).
-
-### Discrete Inputs (FC02) — read-only
-
-| Адрес     | Что    | Описание                           |
-|-----------|--------|------------------------------------|
-| 0…11      | DI1…DI12 | Битовое состояние входа после фильтра |
-
-### Input Registers (FC04) — read-only
-
-| Адрес | Что                | Описание                                                     |
-|-------|--------------------|--------------------------------------------------------------|
-| 0…11  | DI1…DI12           | 0 / 1 — отфильтрованное состояние входа                      |
-| 120   | FW version major   |                                                              |
-| 121   | FW version minor   |                                                              |
-| 122   | uptime[low]        | uptime, секунды, младшее слово                               |
-| 123   | uptime[high]       | uptime, секунды, старшее слово                               |
-| 124   | DI mask            | 12-битная маска текущих состояний всех DI одним регистром     |
-
-### Holding Registers (FC03 / FC06 / FC10) — read/write
-
-| Адрес  | Имя              | Тип   | Диапазон / значения              | Применяется |
-|--------|------------------|-------|----------------------------------|-------------|
-| 100    | `DI_FILTER_MS`   | R/W   | 10 … 1000, по умолчанию 50       | сразу       |
-| 101    | `LED_MODE`       | R/W   | 0 = ALW_OFF, 1 = ALW_ON, 2 = STATE_MACHINE (def) | сразу |
-| 102    | `SLAVE_ID`       | R/W   | 1 … 247                          | сразу       |
-| 103    | `TCP_PORT`       | R/W   | 1 … 65535, по умолчанию 502      | после save+reboot |
-| 104…107| `IP_BASE`        | R/W   | по 1 октету на регистр (104=octet0…107=octet3) | после save+reboot |
-| 108…111| `NETMASK_BASE`   | R/W   | аналогично                       | после save+reboot |
-| 112…115| `GATEWAY_BASE`   | R/W   | аналогично                       | после save+reboot |
-| 116    | `USE_DHCP`       | R/W   | 0 / 1, по умолчанию 1            | после save+reboot |
-| 117    | `TRIG_SAVE`      | W     | запись `0xA5A5` → save в Flash   | моментально |
-| 118    | `TRIG_REBOOT`    | W     | запись `0xB00B` → soft reset     | через ~200 мс |
-| 119    | `TRIG_FACTORY_RESET` | W | запись `0xDEAD` → defaults + save + reset | через ~3.5 с (с миганием LED_STATE_FACTORY_RESET) |
-
-> **Важно:** сетевые параметры (IP/mask/gw/port/DHCP) записываются в RAM-кэш и применяются **только после** записи `TRIG_SAVE` + `TRIG_REBOOT` (или `TRIG_FACTORY_RESET`). Так защищены от случайной потери связи.
-
-Любая запись в зарезервированный или защищённый регистр возвращает `ILLEGAL_DATA_ADDRESS`; запись значения вне диапазона — `ILLEGAL_DATA_VALUE`.
-
-### Пример клиента
-
-```bash
-# modpoll, slave id = 1, port = 502
-# Прочитать состояния всех 12 DI как input registers
-modpoll -m tcp -a 1 -t 4 -r 1 -c 12 192.168.142.147
-
-# Установить фильтр 200 мс и сохранить
-modpoll -m tcp -a 1 -t 4:hex -r 101 -1 192.168.142.147 0x00C8   # HR100 = 200
-modpoll -m tcp -a 1 -t 4:hex -r 118 -1 192.168.142.147 0xA5A5   # HR117 = save
-```
-
-(в `modpoll` адресация регистров с 1: -r 101 = HR 100, -r 118 = HR 117).
-
----
-
-## 5. Настройки
-
-Структура `settings_t` (см. `Application/settings/settings.h`) хранится во внутреннем Flash, **сектор 11** (`0x080E0000`–`0x080FFFFF`, 128 КБ — заведомо больше необходимого, чтобы переписывание не задело прошивку).
-
-Поля:
-
-| Поле               | Дефолт          | Описание                                |
-|--------------------|-----------------|-----------------------------------------|
-| `magic`            | `0x12D14A57`    | Сигнатура валидности                    |
-| `version`          | `1`             | Бамп при изменении layout               |
-| `di_filter_ms`     | 50              | Анти-дребезг, мс (10…1000)              |
-| `led_mode`         | 2 (`STATE_MACHINE`) | 0/1/2                                |
-| `modbus_tcp_port`  | 502             |                                         |
-| `modbus_slave_id`  | 1               |                                         |
-| `use_dhcp`         | 1               | 0 = static, 1 = DHCP                    |
-| `ip[4]`            | 192.168.142.147 | Используется при `use_dhcp = 0`          |
-| `netmask[4]`       | 255.255.255.0   |                                         |
-| `gateway[4]`       | 192.168.142.1   |                                         |
-| `crc32`            | вычисляемый     | CRC32 по всем предыдущим байтам          |
-
-**Сохранение во Flash:** `settings_save()` стирает сектор 11 целиком (`HAL_FLASHEx_Erase`) и пишет структуру по 4 байта (`HAL_FLASH_Program(WORD)`). Перед стиранием очищаются флаги ошибок `FLASH_SR` (защита от «залипших» флагов после прерванной записи) и обновляется IWDG. Стирание занимает ~1–4 с; IWDG prescaler = 64 (timeout ~8.2 с) обеспечивает запас.
-
----
-
-## 6. Сеть
-
-### MAC-адрес и DHCP hostname
-
-| Параметр    | Значение           | Заметки |
-|-------------|--------------------|---------| 
-| MAC         | `02:01:23:45:67:89` | Locally-administered (бит 1 октета 0 = «не IEEE OUI»). Для серии — зарегистрировать OUI в IEEE. |
-| Hostname    | `PLCJS-ETH-12DI`   | Отправляется в DHCP DISCOVER/REQUEST (Option 12), роутер показывает это имя. |
-
-### Аппаратный offload контрольных сумм
-
-STM32F4 ETH DMA вычисляет контрольные суммы при отправке. Режим CIC выбирается per-frame в `low_level_output()`:
-
-| Протокол | CIC | Что считает HW |
-|----------|-----|----------------|
-| ICMP     | 10  | IP header + payload checksum |
-| TCP/UDP  | 11  | IP header + payload + pseudo-header |
-| ARP / не-IP | 00 | Ничего (SW или не нужно) |
-
-### TCP keep-alive (Modbus server)
-
-На каждое принятое TCP-соединение включается SO_KEEPALIVE:
-
-| Параметр     | Значение | Описание |
-|--------------|----------|----------|
-| `keep_idle`  | 10 с     | Время простоя до первого probe |
-| `keep_intvl` | 2 с      | Интервал между probe'ами |
-| `keep_cnt`   | 3        | Количество probe'ов до разрыва |
-
-Итого: обрыв кабеля детектируется TCP keep-alive за ~16 с. Дополнительно, `ethernet_link_thread` детектирует потерю физического link за ~100 мс (мгновенно для LED, 2 с debounce для netif down).
-
----
-
-## 7. STAT_LED
-
-Управление через `led_module_set_mode()` (от Modbus HR 101) и `led_module_set_state()` (от прикладной логики).
-
-| Режим            | Поведение                                                          |
-|------------------|--------------------------------------------------------------------|
-| `ALW_OFF`        | Постоянно выключен                                                 |
-| `ALW_ON`         | Постоянно включен                                                  |
-| `STATE_MACHINE`  | Согласно состоянию (см. ниже)                                      |
-
-Состояния в `STATE_MACHINE`:
-
-| Состояние               | Паттерн                          | Когда                                |
-|-------------------------|----------------------------------|--------------------------------------|
-| `LED_STATE_NO_LINK`    | 3 коротких импульса / 3 с        | Нет физического link ни на одном порту KSZ8863 |
-| `LED_STATE_NO_POLLING`  | 1 короткий импульс / 3 с         | Link есть, но нет TCP-сессии с Modbus-мастером |
-| `LED_STATE_POLLING`     | 2 коротких импульса / 1.5 с      | TCP-сессия активна, идут запросы     |
-| `LED_STATE_FACTORY_RESET`| **непрерывный периодический** ON/OFF, **настраиваемый** (дефолт 100 мс / 100 мс) | Идёт factory reset (sticky до перезагрузки) |
-
-«Короткий импульс» для burst-паттернов NO_POLLING / POLLING / NO_LINK = 50 мс ON / 150 мс OFF (см. `LED_PULSE_ON_MS` / `LED_PULSE_GAP_MS` в `led_module.c`).
-
-Паттерн `LED_STATE_FACTORY_RESET` — независимый от burst-паттернов, простой периодический ON/OFF/ON/OFF. T_ON и T_OFF меняются в runtime API модуля:
-
-```c
-/* led_module.h */
-void     led_module_set_factory_reset_timing(uint16_t on_ms, uint16_t off_ms);
-void     led_module_get_factory_reset_timing(uint16_t *on_ms, uint16_t *off_ms);
-#define  LED_FRESET_DEFAULT_ON_MS   100u
-#define  LED_FRESET_DEFAULT_OFF_MS  100u
-#define  LED_FRESET_MIN_MS          10u   /* clamp нижней границы */
-```
-
-* Дефолт: 100 мс ON / 100 мс OFF (5 Гц) — визуально отлично от burst-паттернов.
-* Значения < `LED_FRESET_MIN_MS` (10 мс) принудительно поднимаются до 10 мс (чтобы FSM не крутилась на каждом тике).
-* Новые значения применяются со следующей полуволны (не прерывают текущий ON/OFF).
-* Состояние sticky — после входа в `LED_STATE_FACTORY_RESET` мерцание идёт до перезагрузки и перебивает `ALW_ON` / `ALW_OFF`.
-
-Приоритет выбора состояния в `update_led_state_from_traffic()`:
-1. `!g_eth_any_link_up` → **NO_LINK**
-2. `has_client && recent_traffic` (< 5 с) → **POLLING**
-3. Иначе → **NO_POLLING**
-
----
-
-## 8. Кнопка FACT_RES
-
-* Удержание `FACT_RES` ≥ 2000 мс **при подаче питания** → factory reset:
-  1. `settings_t` заменяется дефолтами и сразу сохраняется во Flash (sector 11, стирание ~1–2 с)
-  2. STAT_LED входит в `LED_STATE_FACTORY_RESET` и мерцает с настраиваемым T_ON / T_OFF до перезагрузки
-  3. `osDelay`-ожидание 3.5 с (оператор видит индикацию)
-  4. `NVIC_SystemReset()`
-* Удержание уже после старта **не реагирует** (намеренно — чтобы случайное нажатие в эксплуатации не сбросило настройки).
-* Длительность удержания меняется константой `BUTTON_HOLD_FOR_FACTORY_RESET_MS` в `Application/button/button_module.h`.
-
----
-
-## 9. Структура проекта
-
-### Каталоги верхнего уровня (CubeMX-автогенерация)
-
-| Путь                                | Что                                                          |
-|-------------------------------------|--------------------------------------------------------------|
-| `Core/`                             | `main.c`, `freertos.c`, `gpio.c`, `it.c`, `system_*` — автоген CubeMX |
-| `Drivers/`                          | STM32 HAL/CMSIS, не редактируется                            |
-| `Middlewares/Third_Party/FreeRTOS/` | FreeRTOS 10.x + CMSIS_V2 wrapper                             |
-| `Middlewares/Third_Party/LwIP/`     | LwIP 2.1.2                                                   |
-| `LWIP/`                             | `lwipopts.h` и Cube-glue для LwIP                            |
-| `cmake/`                            | `starm-clang.cmake` — тулчейн-файл (генерирует CubeMX)       |
-| `STM32F407XX_FLASH.ld`              | Линкер-скрипт                                                |
-| `*.ioc`                             | Проект CubeMX (источник правды для пинов и периферии)        |
-| `DOC/`                              | Принципиальная схема и документация                          |
-
-### Прикладной код (`Application/`)
-
-| Каталог / файл                              | Назначение                                                   |
-|---------------------------------------------|--------------------------------------------------------------|
-| `app/app.c`, `app.h`                        | Оркестратор: `app_run()`, deferred-команды, IWDG, LED-логика |
-| `settings/settings.c`, `settings.h`         | NVS во Flash sector 11; magic/version/CRC32; runtime API     |
-| `di/di_module.c`, `di_module.h`             | 12 каналов, pull-up, инвертированная логика, фильтр 10–1000 мс|
-| `led/led_module.c`, `led_module.h`          | STAT_LED FSM: `ALW_ON` / `ALW_OFF` / `STATE_MACHINE` + 4 состояния |
-| `button/button_module.c`, `button_module.h` | FACT_RES опрос на старте, ручка длительности                 |
-| `ksz8863/ksz8863.c`, `ksz8863.h`            | Драйвер Ethernet-свича KSZ8863MLLI по SMI/MIIM               |
-| `modbus/modbus_app.c`, `modbus_app.h`       | Карта регистров, валидация, deferred-триггеры, callback'и nanoMODBUS |
-| `modbus/modbus_tcp_server.c`, `modbus_tcp_server.h` | LwIP netconn slave, single-client, TCP keep-alive, idle timeout |
-| `third_party/nanomodbus/`                   | nanoMODBUS (MIT), server-only, без RTU                       |
-
-### Места правок в автогене (помечены комментариями)
-
-| Файл                          | Что добавлено                                                                 |
-|-------------------------------|-------------------------------------------------------------------------------|
-| `Core/Src/freertos.c`         | `StartDefaultTask`: `ksz8863_hw_reset()` **перед** `MX_LWIP_Init()`, потом `app_run()` (USER CODE) |
-| `Core/Src/iwdg.c`             | `IWDG_PRESCALER_64` (было `_4`) — запас под стирание Flash sector 11         |
-| `LWIP/Target/lwipopts.h`      | `LWIP_SO_RCVTIMEO`, `LWIP_SO_SNDTIMEO`, `LWIP_TCP_KEEPALIVE`, `LWIP_NETIF_HOSTNAME` (USER CODE BEGIN 1) |
-| `LWIP/Target/ethernetif.c`    | `g_eth_any_link_up`, KSZ8863 link polling + debounce в `ethernet_link_thread`, hostname `PLCJS-ETH-12DI` |
-| `CMakeLists.txt` (корень)     | Подключение `Application/` сорсов и инклудов, nanoMODBUS, `NMBS_CLIENT_DISABLED=1` |
-
----
-
-## 10. KSZ8863 — драйвер свича
-
-KSZ8863MLLI используется как **неуправляемый коммутатор** (порт 3 — это MAC-сторона STM32, конфигурируется страп-пинами; внешние порты 1 и 2 идут к разъёмам). Управление возможно через стандартный SMI/MIIM (MDC/MDIO), который уже разведён к ETH-периферии STM32 — никаких SPI/I2C для драйвера не нужно.
-
-Драйвер в `Application/ksz8863/ksz8863.{h,c}` использует `HAL_ETH_ReadPHYRegister` / `HAL_ETH_WritePHYRegister` поверх общего `heth` из `ethernetif.c`. PHY-адреса: **0x01** для порта 1, **0x02** для порта 2.
-
-### Публичный API
-
-| Функция | Что делает |
+| Параметр | Значение |
 |---|---|
-| `ksz8863_hw_reset()` | Дёргает ETHRST (PD11) на 10 мс, снимает, ждёт 20 мс — чип готов к SMI |
-| `ksz8863_self_test(id1_out, id2_out)` | Читает PHYID1/PHYID2 порта 1, проверяет Micrel OUI `0x0022` |
-| `ksz8863_get_link(port, out)` | Парсит BMCR/BMSR/ANLPAR → `link_up`, `autoneg_done`, `speed`, `duplex` |
-| `ksz8863_set_force_mode(port, speed, duplex)` | Снимает auto-neg, ставит фиксированный режим 10/100 × half/full |
-| `ksz8863_restart_autoneg(port)` | Включает auto-neg и пускает рестарт (BMCR.RESTART_AN) |
-| `ksz8863_port_enable(port, enable)` | Power-down / power-up порта через `BMCR.POWER_DOWN` |
+| DHCP | `1` / включен |
+| Static IP | `192.168.142.147` |
+| Netmask | `255.255.255.0` |
+| Gateway | `192.168.142.1` |
+| Modbus TCP port | `502` |
+| Modbus unit id | `1` |
 
-### Link polling (ethernet_link_thread)
+В тестовой сети DHCP выдавал приложению адрес `192.168.142.98`. Bootloader в протестированной конфигурации доступен на `192.168.142.99`.
 
-`ethernet_link_thread` в `ethernetif.c` поллит BMSR обоих портов каждые 100 мс:
+Важно:
 
-* **Мгновенный флаг** `g_eth_any_link_up` обновляется сразу — LED реагирует без задержки.
-* **Netif down** — 2-секундный debounce, затем `HAL_ETH_Stop()` + `netif_set_link_down()`.
-* **Netif up** — мгновенно при появлении link: `HAL_ETH_Start_IT()` + `netif_set_link_up()` + перезапуск DHCP.
+- `USE_DHCP = 1` означает, что static IP хранится как запасная настройка, но не применяется
+- изменения IP/port/DHCP вступают в силу после `TRIG_SAVE` и `TRIG_REBOOT`
+- static IP mode был проверен на `192.168.142.147`
 
-### Точки интеграции в boot-последовательности
+## Дискретные входы
 
+Входы active-low: замыкание входа на землю публикуется как логическая `1`.
+
+| Modbus index | Silkscreen | MCU pin | Mask bit |
+|---:|---|---|---:|
+| 0 | DI1 | PB3 | `0x001` |
+| 1 | DI2 | PD7 | `0x002` |
+| 2 | DI3 | PD6 | `0x004` |
+| 3 | DI4 | PD5 | `0x008` |
+| 4 | DI5 | PD4 | `0x010` |
+| 5 | DI6 | PD3 | `0x020` |
+| 6 | DI7 | PD2 | `0x040` |
+| 7 | DI8 | PD1 | `0x080` |
+| 8 | DI9 | PD0 | `0x100` |
+| 9 | DI10 | PC12 | `0x200` |
+| 10 | DI11 | PC11 | `0x400` |
+| 11 | DI12 | PC10 | `0x800` |
+
+Фильтр входов:
+
+- период опроса: `1 ms`
+- дефолт: `50 ms`
+- диапазон: `10..1000 ms`
+- настройка применяется сразу после записи `HR100`
+- сохранение в Flash требует `TRIG_SAVE`
+
+## STAT_LED
+
+Режимы LED:
+
+| Код | Режим |
+|---:|---|
+| `0` | всегда выключен |
+| `1` | всегда включен |
+| `2` | state machine, дефолт |
+
+Паттерны в режиме state machine:
+
+| Состояние | Поведение |
+|---|---|
+| No polling | 1 короткая вспышка каждые 3 секунды |
+| Polling | 2 короткие вспышки каждые 1.5 секунды |
+| No link | 3 короткие вспышки каждые 3 секунды |
+| Factory reset | непрерывное мигание, дефолт `300 ms ON / 100 ms OFF` |
+
+Паттерны `idle -> polling -> idle` и `no link` были подтверждены визуально на модуле.
+
+## Modbus TCP карта
+
+### Discrete Inputs, FC02
+
+| Address | Описание |
+|---:|---|
+| `0..11` | DI1..DI12, отфильтрованное состояние |
+
+### Input Registers, FC04
+
+| Address | Описание |
+|---:|---|
+| `0..11` | DI1..DI12, значения `0/1` |
+| `120` | firmware version major |
+| `121` | firmware version minor |
+| `122` | uptime seconds, low word |
+| `123` | uptime seconds, high word |
+| `124` | 12-bit DI mask |
+
+### Holding Registers, FC03 / FC06 / FC16
+
+| Address | Имя | Диапазон / значение | Применение |
+|---:|---|---|---|
+| `100` | `DI_FILTER_MS` | `10..1000`, default `50` | сразу |
+| `101` | `LED_MODE` | `0..2`, default `2` | сразу |
+| `102` | `SLAVE_ID` | `1..247`, default `1` | для новых Modbus-сессий |
+| `103` | `TCP_PORT` | `1..65535`, default `502` | после save + reboot |
+| `104..107` | `IP_BASE` | IPv4 octets | после save + reboot |
+| `108..111` | `NETMASK_BASE` | IPv4 octets | после save + reboot |
+| `112..115` | `GATEWAY_BASE` | IPv4 octets | после save + reboot |
+| `116` | `USE_DHCP` | `0/1`, default `1` | после save + reboot |
+| `117` | `TRIG_SAVE` | write `0xA5A5` | сохранить настройки |
+| `118` | `TRIG_REBOOT` | write `0xB00B` | soft reset |
+| `118` | `TRIG_BOOTLOADER` | write `0xB007` | перейти в bootloader |
+| `119` | `TRIG_FACTORY_RESET` | write `0xDEAD` | defaults + save + reset |
+
+Некорректные значения возвращают Modbus exception `ILLEGAL_DATA_VALUE`. Некорректные адреса возвращают `ILLEGAL_DATA_ADDRESS`.
+
+## Примеры PyModbus
+
+Чтение версии и DI mask:
+
+```python
+from pymodbus.client import ModbusTcpClient
+
+client = ModbusTcpClient("192.168.142.98", port=502, timeout=5)
+client.connect()
+rr = client.read_input_registers(address=120, count=5, device_id=1)
+print(rr.registers)
+client.close()
 ```
-Reset_Handler → main() → MX_GPIO_Init (ETHRST = LOW) → ... → osKernelStart
-  └ StartDefaultTask
-       ├ ksz8863_hw_reset()      ← ETHRST поднимается ЗДЕСЬ, до MAC
-       ├ MX_LWIP_Init()          ← внутри HAL_ETH_Init() — теперь PHY доступен
-       └ app_run()
-             └ apply_network_config()
-             └ ksz8863_self_test()  ← SMI готова, читаем PHYID для self-test
+
+Сохранить настройки:
+
+```python
+client.write_register(address=117, value=0xA5A5, device_id=1)
 ```
 
-Результат self-test хранится в статике `s_ksz8863_present` / `s_ksz8863_id1` / `s_ksz8863_id2` в `app.c` — для будущей логики (паттерн STAT_LED при «свич не отвечает», диагностические регистры). **В Modbus наружу не выведено** — только внутреннее состояние.
+Перезагрузить приложение:
 
-### Нюансы / ограничения
+```python
+client.write_register(address=118, value=0xB00B, device_id=1)
+```
 
-* Self-test проверяет только порт 1 (оба внешних порта на одном кристалле, поэтому одного достаточно).
-* PHYID2 читается, но не валидируется: младшие нибблы (model + revision) гуляют между ревизиями кремния. Жёстко проверяется только PHYID1 = `0x0022` (Micrel OUI).
-* «Все нули» / «все единицы» в PHYID интерпретируются как fail — ловит «MDIO floating high» и «чип в ресете».
+Перейти в bootloader:
 
----
+```python
+client.write_register(address=118, value=0xB007, device_id=1)
+```
 
-## 11. Modbus TCP server — детали реализации
+Factory reset:
 
-### Буферизация TX
+```python
+client.write_register(address=119, value=0xDEAD, device_id=1)
+```
 
-Ответ формируется в буфер `txbuf[280]` внутри `mb_io_t`. `mb_write_byte()` только добавляет байт в буфер, `mb_flush()` отправляет весь ответ одним `netconn_write()` после возврата `nmbs_server_poll()`. Это устраняет проблему Nagle + delayed ACK (~200 мс задержек при побайтовой отправке).
+## Настройки во Flash
 
-### Idle timeout
+Настройки хранятся в sector 10 по адресу `0x080C0000`.
 
-Помимо TCP keep-alive, реализован программный idle timeout: если за `MB_MAX_IDLE_TIMEOUTS` (6) последовательных read-timeout'ов (по 5 с каждый = 30 с суммарно) не было ни одного запроса — соединение принудительно закрывается. При потере физического link (`!g_eth_any_link_up`) соединение закрывается немедленно при первом же timeout.
+Структура защищена:
 
-### Single-client
+- magic: `0x12D14A57`
+- version: `1`
+- CRC32 по всем полям до `crc32`
 
-Один TCP-клиент за раз. Вторая сессия примется только после разрыва первой — стандартное поведение индустриальных слейвов.
+Если структура во Flash невалидна, приложение загружает дефолты. `TRIG_SAVE` стирает sector 10 и записывает актуальную структуру настроек.
 
----
+## Переход в bootloader
 
-## 12. nanoMODBUS — полезные мелочи
+Приложение и bootloader используют shared no-init RAM flag:
 
-* Используется **server-only** сборка (`-DNMBS_CLIENT_DISABLED=1`) — экономит ~6 КБ Flash.
-* Внутренний макрос `DEBUG(...)` в `nanomodbus.c` конфликтует с проектным `-DDEBUG`. В вендоре добавлен `#undef DEBUG` перед собственным `#define`, чтобы не было `-Wmacro-redefined`.
+- address: `0x2001FFF0`
+- magic: `0xB007CAFE`
 
----
+При записи `0xB007` в `HR118` приложение:
 
-## 13. Диагностика (debug struct)
+1. записывает magic в shared RAM cell
+2. ждет короткую паузу, обновляя IWDG
+3. выполняет `NVIC_SystemReset()`
+4. bootloader считывает magic, очищает его и остается в `BOOT_WAIT_COMMAND`
 
-В `app.c` определена `volatile struct dbg` — читается через отладчик (SWD/GDB). Основные поля:
+## Recovery и эксплуатационные заметки
 
-| Поле             | Что                                  |
-|------------------|--------------------------------------|
-| `settings_from_flash` | 1 = загружено из Flash, 0 = defaults |
-| `phy_link_up`    | Физический link на портах KSZ8863    |
-| `save_ok`        | Результат последнего `settings_save()` |
-| `save_count`     | Счётчик вызовов `settings_save()`     |
-| `rx_int_cnt`     | Счётчик ETH RX прерываний            |
-| `rx_frame_cnt`   | Фреймы переданные в LwIP             |
-| `tx_frame_cnt`   | Фреймы отправленные LwIP             |
-| `tx_fail_cnt`    | Ошибки TX                            |
-| `port1_bmsr`     | KSZ port 1 BMSR (link status)        |
-| `port2_bmsr`     | KSZ port 2 BMSR (link status)        |
-| `netif_ip`       | Текущий IP (из LwIP)                 |
+- после `factory reset` настройки возвращаются к дефолтам и устройство перезагружается
+- после смены IP/port/DHCP обязательно делайте `TRIG_SAVE` и `TRIG_REBOOT`
+- при переходе в bootloader приложение уходит с app IP, bootloader поднимается на bootloader IP
+- если bootloader остался после неудачной OTA-сессии, используйте `ABORT_UPDATE`, затем `REBOOT` на стороне bootloader
 
----
+## Проверенный тестовый набор
 
-## 14. Тестирование на железе (минимум)
+| Тест | Результат |
+|---|---|
+| Build app | OK |
+| Ping `.98` | OK |
+| Modbus read/write | OK |
+| Reconnect 20/20 | OK |
+| Polling 100/100 | OK |
+| Soak ping 120/120 | OK, 0% loss |
+| Soak Modbus 240/240 | OK |
+| `DI1..DI12` | OK |
+| `TCP_PORT 502 <-> 1502` | OK |
+| `DHCP <-> static .147` | OK |
+| `reboot` | OK |
+| `factory reset` | OK |
+| `app -> bootloader -> app` | OK |
+| Negative Modbus values | OK |
+| LED idle/polling/no-link | OK |
 
-1. Прошить плату.
-2. STAT_LED после старта: если кабель не подключён — **3 импульса / 3 с** (`NO_LINK`); кабель подключён — **1 импульс / 3 с** (`NO_POLLING`).
-3. Подключить мастер (modpoll / QModMaster / ModbusPoll) на порт 502 (IP по DHCP, смотреть в роутере как `PLCJS-ETH-12DI`). STAT_LED переключается на **2 импульса / 1.5 с** (`POLLING`).
-4. FC04 регистры 0…11 — подача 1 на DI меняет соответствующий бит (с задержкой = `di_filter_ms`).
-5. FC06 HR 100 = 200, FC06 HR 117 = `0xA5A5` (save). Power cycle → FC03 HR 100 = 200 (сохранено).
-6. Выдернуть Ethernet-кабель → LED через ~100 мс переходит на 3 вспышки (`NO_LINK`), Modbus-соединение закрывается.
-7. Вставить кабель обратно → link up мгновенно, DHCP перезапускается, через ~3–5 с модуль снова доступен.
-8. Удержать FACT_RES + reset платы → STAT_LED моргнёт 10 раз, IP/настройки вернутся к дефолтам.
+## Известные ограничения
 
----
-
-## 15. Что не реализовано / TODO
-
-* Diagnostic counters (число пакетов / ошибок / разрывов) не выведены в Modbus input registers (доступны только через `dbg` struct в отладчике).
-* Watchdog-таймаут не выведен в настройки (фиксирован в CubeMX: prescaler 64, reload 4095).
-* MAC-адрес захардкожен (`02:01:23:45:67:89`). Для серии — зарегистрировать OUI в IEEE или генерировать из UID STM32.
-
----
-
-## Лицензия
-
-Прикладной код в `Application/` (кроме `third_party/`) — без явной лицензии, рассматривать как proprietary владельца репозитория.
-nanoMODBUS — MIT (см. `Application/third_party/nanomodbus/LICENSE`).
-LwIP — BSD-style (см. соответствующий каталог).
-HAL/CMSIS — стандартные лицензии STMicroelectronics.
+- нет аутентификации Modbus TCP команд
+- Modbus server обслуживает одного клиента за раз; дополнительные клиенты ждут освобождения соединения
+- текущий MAC address является locally-administered и должен быть заменен для серийного производства
+- bootloader IP настраивается в отдельном проекте и сейчас статический
