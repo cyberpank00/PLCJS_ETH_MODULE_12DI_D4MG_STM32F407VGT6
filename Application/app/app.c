@@ -21,7 +21,6 @@
 
 #include "button_module.h"
 #include "di_module.h"
-#include "ksz8863.h"
 #include "led_module.h"
 #include "modbus_app.h"
 #include "modbus_tcp_server.h"
@@ -32,12 +31,6 @@
 extern struct netif gnetif;
 extern ETH_HandleTypeDef heth;
 
-/* Diagnostic counters from ethernetif.c */
-extern volatile uint32_t ethernetif_rx_int_cnt;
-extern volatile uint32_t ethernetif_rx_frame_cnt;
-extern volatile uint32_t ethernetif_tx_frame_cnt;
-extern volatile uint32_t ethernetif_tx_fail_cnt;
-
 /* Physical link state from ethernet_link_thread (ethernetif.c). */
 extern volatile uint8_t g_eth_any_link_up;
 
@@ -47,48 +40,6 @@ uint8_t modbus_app_take_pending_reboot(void);
 uint8_t modbus_app_take_pending_factory_reset(void);
 uint8_t modbus_app_take_pending_bootloader(void);
 uint32_t modbus_app_last_request_tick(void);
-
-/* Latest result of the boot-time KSZ8863 SMI self-test. Exposed as a flag
- * for any module that wants to react to the switch being unreachable
- * (e.g. an LED pattern, future Modbus diagnostic registers). */
-static bool     s_ksz8863_present = false;
-static uint16_t s_ksz8863_id1     = 0u;
-static uint16_t s_ksz8863_id2     = 0u;
-
-/* ----------- Debug diagnostics (inspect via debugger) -------------------- */
-volatile struct {
-    uint8_t  settings_from_flash;  /* 1 = loaded from Flash, 0 = defaults    */
-    uint8_t  use_dhcp;             /* effective use_dhcp value                */
-    uint8_t  ip[4];                /* effective IP                            */
-    uint8_t  netmask[4];           /* effective netmask                       */
-    uint8_t  gateway[4];           /* effective gateway                       */
-    uint8_t  ksz_present;          /* 1 = KSZ8863 answered self-test          */
-    uint16_t ksz_id1;              /* PHY ID1 readback                        */
-    uint16_t ksz_id2;              /* PHY ID2 readback                        */
-    uint8_t  netif_up;             /* gnetif.flags & NETIF_FLAG_UP            */
-    uint8_t  netif_link_up;        /* gnetif.flags & NETIF_FLAG_LINK_UP       */
-    uint32_t netif_ip;             /* gnetif.ip_addr as u32                   */
-    uint8_t  boot_stage;           /* increments at each init step            */
-    uint32_t ksz_chipid;           /* KSZ8863 reg 0x00 (ChipID0) via SMI     */
-    uint32_t ksz_gc4;              /* KSZ8863 Global Control 4 (reg 0x06)    */
-    uint32_t ksz_gc4_after;        /* GC4 after RMII bit set                 */
-    uint32_t eth_dmasr;            /* ETH DMA Status Register snapshot       */
-    uint32_t eth_maccr;            /* ETH MAC Config Register snapshot       */
-    uint8_t  eth_start_ok;         /* 1 = HAL_ETH_Start_IT succeeded         */
-    uint32_t mmc_tx_good;          /* MMC: TX good frames                    */
-    uint32_t mmc_rx_good_uni;      /* MMC: RX good unicast frames            */
-    uint32_t mmc_rx_crc_err;       /* MMC: RX CRC error frames               */
-    uint32_t mmc_rx_align_err;     /* MMC: RX alignment error frames         */
-    uint32_t port1_bmsr;           /* KSZ port 1 BMSR (link status)          */
-    uint32_t port2_bmsr;           /* KSZ port 2 BMSR (link status)          */
-    uint32_t rx_int_cnt;           /* ETH RX interrupts fired                */
-    uint32_t rx_frame_cnt;         /* frames passed to LwIP                  */
-    uint32_t tx_frame_cnt;         /* frames sent by LwIP                    */
-    uint32_t tx_fail_cnt;          /* TX errors                              */
-    uint8_t  phy_link_up;          /* any KSZ8863 external port has link     */
-    uint8_t  save_ok;              /* last settings_save() result            */
-    uint8_t  save_count;           /* total settings_save() calls            */
-} dbg;
 
 /* ---------------------------------------------------------------------------
  * Sub-tasks
@@ -131,8 +82,7 @@ static void perform_factory_reset(void)
 {
     /* Reset and persist defaults to Flash. */
     settings_reset_to_defaults();
-    dbg.save_ok = settings_save() ? 1u : 0u;
-    dbg.save_count++;
+    settings_save();
 
     /* Enter the sticky LED_STATE_FACTORY_RESET — the LED task drives the
      * configurable periodic ON/OFF blink on its 10 ms tick until the reboot
@@ -146,10 +96,6 @@ static void perform_factory_reset(void)
     const uint32_t deadline = HAL_GetTick() + 3500u;
     while (HAL_GetTick() < deadline) {
         HAL_IWDG_Refresh(&hiwdg);
-        dbg.netif_up      = (gnetif.flags & NETIF_FLAG_UP)      ? 1u : 0u;
-        dbg.netif_link_up = (gnetif.flags & NETIF_FLAG_LINK_UP) ? 1u : 0u;
-        dbg.netif_ip      = gnetif.ip_addr.addr;
-        dbg.boot_stage    = 4;
         osDelay(50);
     }
     NVIC_SystemReset();
@@ -210,13 +156,8 @@ static void update_led_state_from_traffic(void)
 void app_run(void)
 {
     /* Load settings (or defaults) before anything that consumes them. */
-    dbg.boot_stage = 1;
-    dbg.settings_from_flash = settings_init() ? 1u : 0u;
+    settings_init();
     settings_t* s = settings_get();
-    dbg.use_dhcp = s->use_dhcp;
-    memcpy(dbg.ip, s->ip, 4);
-    memcpy(dbg.netmask, s->netmask, 4);
-    memcpy(dbg.gateway, s->gateway, 4);
 
     /* Initialise the LED module and spawn its task BEFORE the button check.
      * The factory-reset burst (10 short blinks) is driven by led_module_tick()
@@ -241,41 +182,17 @@ void app_run(void)
 
     /* Apply network configuration (static or DHCP). */
     apply_network_config();
-    dbg.boot_stage = 2;
 
     /* HAL_ETH_Init() has already run by the time we get here (LwIP init
      * called it from low_level_init()), so SMI/MIIM access is available.
-     * Probe the switch once: if it answers with a Micrel OUI we know the
-     * RMII/MDIO bus is healthy. The result is kept in static state for
-     * other modules to consult. */
-    s_ksz8863_present = ksz8863_self_test(&s_ksz8863_id1, &s_ksz8863_id2);
-    dbg.ksz_present = s_ksz8863_present ? 1u : 0u;
-    dbg.ksz_id1     = s_ksz8863_id1;
-    dbg.ksz_id2     = s_ksz8863_id2;
-    dbg.boot_stage  = 3;
-
-    /* --- KSZ8863 indirect register diagnostics (SMI) ---
-     * Register address = {PHY_ADDR[2:0], REG_ADDR[4:0]}.
-     * Reg 0x00 (ChipID0): PHY 0, reg 0.  Reg 0x06 (GC4): PHY 0, reg 6. */
+     * Ensure KSZ8863 port 3 is in RMII mode (bit 6 of Global Control 4). */
     {
         uint32_t tmp = 0;
-        HAL_ETH_ReadPHYRegister(&heth, 0, 0, &tmp);  /* ChipID0 */
-        dbg.ksz_chipid = tmp;
-
         HAL_ETH_ReadPHYRegister(&heth, 0, 6, &tmp);  /* Global Control 4 */
-        dbg.ksz_gc4 = tmp;
-
-        /* Bit 6 of GC4: 0=MII, 1=RMII for port 3.  Force RMII if needed. */
         if ((tmp & 0x0040u) == 0u) {
             tmp |= 0x0040u;
             HAL_ETH_WritePHYRegister(&heth, 0, 6, tmp);
         }
-        HAL_ETH_ReadPHYRegister(&heth, 0, 6, &tmp);
-        dbg.ksz_gc4_after = tmp;
-
-        /* Snapshot MAC/DMA state */
-        dbg.eth_dmasr = ETH->DMASR;
-        dbg.eth_maccr = ETH->MACCR;
     }
 
     /* Spawn the DI sampling task. The LED task was started earlier so that
@@ -294,32 +211,11 @@ void app_run(void)
     uint32_t tick = osKernelGetTickCount();
     for (;;) {
         HAL_IWDG_Refresh(&hiwdg);
-        dbg.netif_up      = (gnetif.flags & NETIF_FLAG_UP)      ? 1u : 0u;
-        dbg.netif_link_up = (gnetif.flags & NETIF_FLAG_LINK_UP) ? 1u : 0u;
-        dbg.netif_ip      = gnetif.ip_addr.addr;
-        dbg.eth_dmasr     = ETH->DMASR;
-        dbg.eth_maccr     = ETH->MACCR;
-        dbg.eth_start_ok  = (heth.gState == HAL_ETH_STATE_STARTED) ? 1u : 0u;
-        dbg.mmc_tx_good      = ETH->MMCTGFCR;
-        dbg.mmc_rx_good_uni  = ETH->MMCRGUFCR;
-        dbg.mmc_rx_crc_err   = ETH->MMCRFCECR;
-        dbg.mmc_rx_align_err = ETH->MMCRFAECR;
-        { uint32_t v = 0;
-          HAL_ETH_ReadPHYRegister(&heth, 1, 1, &v); dbg.port1_bmsr = v;
-          HAL_ETH_ReadPHYRegister(&heth, 2, 1, &v); dbg.port2_bmsr = v;
-        }
-        dbg.rx_int_cnt   = ethernetif_rx_int_cnt;
-        dbg.rx_frame_cnt = ethernetif_rx_frame_cnt;
-        dbg.tx_frame_cnt = ethernetif_tx_frame_cnt;
-        dbg.tx_fail_cnt  = ethernetif_tx_fail_cnt;
-        dbg.phy_link_up  = g_eth_any_link_up;
-        dbg.boot_stage    = 4;
         update_led_state_from_traffic();
 
         if (modbus_app_take_pending_save()) {
             HAL_IWDG_Refresh(&hiwdg);
-            dbg.save_ok = settings_save() ? 1u : 0u;
-            dbg.save_count++;
+            settings_save();
         }
         if (modbus_app_take_pending_factory_reset()) {
             perform_factory_reset();
@@ -341,10 +237,6 @@ void app_run(void)
             const uint32_t deadline = HAL_GetTick() + 200u;
             while (HAL_GetTick() < deadline) {
                 HAL_IWDG_Refresh(&hiwdg);
-        dbg.netif_up      = (gnetif.flags & NETIF_FLAG_UP)      ? 1u : 0u;
-        dbg.netif_link_up = (gnetif.flags & NETIF_FLAG_LINK_UP) ? 1u : 0u;
-        dbg.netif_ip      = gnetif.ip_addr.addr;
-        dbg.boot_stage    = 4;
                 osDelay(20);
             }
             NVIC_SystemReset();
