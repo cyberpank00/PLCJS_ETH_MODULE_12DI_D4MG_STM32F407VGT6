@@ -242,6 +242,7 @@ static uint16_t read_input(uint16_t address)
     case MB_IR_UPTIME_LO:       return (uint16_t)((HAL_GetTick() / 1000u) & 0xFFFFu);
     case MB_IR_UPTIME_HI:       return (uint16_t)(((HAL_GetTick() / 1000u) >> 16u) & 0xFFFFu);
     case MB_IR_DI_MASK:         return di_module_get_mask();
+    case MB_IR_MODULE_ID:       return MODULE_ID_12DI;
     default:                    return 0u;
     }
 }
@@ -266,10 +267,10 @@ static nmbs_error cb_read_discrete_inputs(uint16_t address, uint16_t quantity,
 static nmbs_error cb_read_input_registers(uint16_t address, uint16_t quantity,
                                           uint16_t* registers_out)
 {
-    /* Allow read of DI block (0..11) and the metadata block (120..124). */
+    /* Allow read of DI block (0..11) and the metadata block (120..125). */
     for (uint16_t i = 0; i < quantity; i++) {
         const uint16_t a = (uint16_t)(address + i);
-        if (a < MB_DI_COUNT || (a >= MB_IR_FW_VER_MAJOR && a <= MB_IR_DI_MASK)) {
+        if (a < MB_DI_COUNT || (a >= MB_IR_FW_VER_MAJOR && a <= MB_IR_MODULE_ID)) {
             registers_out[i] = read_input(a);
         } else {
             return NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
