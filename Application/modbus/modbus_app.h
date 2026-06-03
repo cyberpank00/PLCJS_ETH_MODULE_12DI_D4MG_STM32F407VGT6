@@ -81,7 +81,7 @@ extern "C" {
  * Select the active variant; comment out the rest. */
 #define MODULE_ID_12DI  0x12D1u  /* 12x DI — 12DI/D4MG (this build) */
 /* #define MODULE_ID_12D0  0x12D0u */  /* 12x DO                    */
-/* #define MODULE_ID_04RD  0x????u */  /* 4x Relay-DO               */
+/* #define MODULE_ID_04RD  0x04DDu */  /* 4x Relay-DO               */
 /* #define MODULE_ID_08A1  0x08A1u */  /* 8x AI variant 1           */
 /* #define MODULE_ID_08A0  0x08A0u */  /* 8x AO variant 0           */
 
