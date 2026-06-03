@@ -54,7 +54,9 @@ RAM:
 
 ## Сборка
 
-Требуется STM32CubeCLT с `starm-clang`, `cmake` и `ninja`.
+Требуется STM32CubeCLT с `starm-clang`, `cmake`, `ninja` и `python3`.
+
+Стандартная сборка для варианта 12-DI/D4MG (`PRODUCT_ID=0x12D1D4A0`, `HW_REVISION=1`):
 
 ```powershell
 cmake -S . -B build/Debug -G Ninja `
@@ -68,7 +70,78 @@ cmake --build build/Debug
 - `build/Debug/PLCJS_ETH_MODULE_12DI_D4MG_STM32F407VGT6.elf`
 - `build/Debug/PLCJS_ETH_MODULE_12DI_D4MG_STM32F407VGT6.hex`
 - `build/Debug/PLCJS_ETH_MODULE_12DI_D4MG_STM32F407VGT6.bin`
-- `build/Debug/app.bin` - OTA image для bootloader
+- `build/Debug/app.bin` — OTA image для bootloader, с встроенным `fw_header_t`
+
+Post-build шаг автоматически запускает `tools/gen_app_bin.py`, который:
+
+1. берёт сырой `.bin`
+2. проверяет, что по смещению `0x200` находится корректный `fw_header_t` (magic `"PLCJ"`)
+3. заполняет поля `image_size` и `image_crc32` (CRC32 с полем CRC = 0)
+4. сохраняет результат как `app.bin`
+
+Итоговый `app.bin` содержит заголовок с `product_id`, `hw_revision` и `fw_version`,
+которые бутлоадер проверяет из самого бинарника при OTA-обновлении.
+
+## Многовариантная сборка
+
+Прошивка поддерживает сборку для разных вариантов модуля через CMake-параметры.
+При каждой сборке в бинарник вшиваются корректные `product_id` и `hw_revision`,
+а бутлоадер, скомпилированный для того же варианта, примет **только** этот образ.
+
+Доступные параметры:
+
+| Параметр CMake | Значение по умолчанию | Описание |
+|---|---|---|
+| `-DPRODUCT_ID=0x...` | `0x12D1D4A0` | Идентификатор варианта модуля |
+| `-DHW_REVISION=N` | `1` | Ревизия платы |
+| `-DFW_VERSION=0xMMmmpp` | `0x00010000` | Версия прошивки (major/minor/patch) |
+
+Примеры для разных вариантов:
+
+```powershell
+# 12 дискретных входов / 4 выхода — вариант по умолчанию
+cmake -S . -B build/12di -G Ninja `
+  -DCMAKE_TOOLCHAIN_FILE=cmake/starm-clang.cmake `
+  -DPRODUCT_ID=0x12D1D4A0 -DHW_REVISION=1 -DFW_VERSION=0x00010000
+
+# 12 дискретных выходов
+cmake -S . -B build/12do -G Ninja `
+  -DCMAKE_TOOLCHAIN_FILE=cmake/starm-clang.cmake `
+  -DPRODUCT_ID=0x12D00000 -DHW_REVISION=1
+
+# 4 входа RTD
+cmake -S . -B build/4rtd -G Ninja `
+  -DCMAKE_TOOLCHAIN_FILE=cmake/starm-clang.cmake `
+  -DPRODUCT_ID=0x04D00000 -DHW_REVISION=1
+
+# 8 аналоговых входов
+cmake -S . -B build/8ai -G Ninja `
+  -DCMAKE_TOOLCHAIN_FILE=cmake/starm-clang.cmake `
+  -DPRODUCT_ID=0x08A10000 -DHW_REVISION=1
+
+# 8 аналоговых выходов
+cmake -S . -B build/8ao -G Ninja `
+  -DCMAKE_TOOLCHAIN_FILE=cmake/starm-clang.cmake `
+  -DPRODUCT_ID=0x08A00000 -DHW_REVISION=1
+```
+
+После сборки `app.bin` в папке варианта несёт правильный `product_id`, и бутлоадер
+для **другого** варианта отклонит его при `FINALIZE_UPDATE`.
+
+### Как это работает
+
+```
+Сборка → fw_header.c компилируется с -DFW_PRODUCT_ID=0x12D1D4A0
+                                       -DFW_HW_REVISION=1
+                                       -DFW_VERSION_VALUE=0x00010000
+       → линкер помещает g_fw_header в секцию .fw_header по смещению 0x200
+       → gen_app_bin.py заполняет image_size и image_crc32
+       → app.bin готов
+
+OTA-обновление → бутлоадер читает product_id/hw_revision из бинарника
+               → при несоответствии: PRODUCT_MISMATCH, BOOT_ERROR
+               → при совпадении: образ устанавливается
+```
 
 ## Прошивка
 

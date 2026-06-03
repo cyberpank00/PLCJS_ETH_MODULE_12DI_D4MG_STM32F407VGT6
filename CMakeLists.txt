@@ -42,6 +42,13 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined library search paths
 )
 
+# ---------- Module identity (overridable per module variant) ---------------
+# Pass -DPRODUCT_ID=0x... / -DHW_REVISION=N / -DFW_VERSION=0x... on the cmake
+# command line to customise the firmware header for each module variant.
+set(PRODUCT_ID    "0x12D1D4A0" CACHE STRING "Product ID embedded in fw_header_t")
+set(HW_REVISION   "1"          CACHE STRING "Hardware revision embedded in fw_header_t")
+set(FW_VERSION    "0x00010000" CACHE STRING "Firmware version 0xMMmmpp embedded in fw_header_t")
+
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Application sources
@@ -53,6 +60,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Application/settings/settings.c
     Application/modbus/modbus_app.c
     Application/modbus/modbus_tcp_server.c
+    Application/fw_header/fw_header.c
     # Third-party
     Application/third_party/nanomodbus/nanomodbus.c
 )
@@ -66,6 +74,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Application/ksz8863
     Application/settings
     Application/modbus
+    Application/fw_header
     Application/third_party/nanomodbus
 )
 
@@ -74,9 +83,11 @@ target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
     NMBS_CLIENT_DISABLED=1
 )
 
-# Add project symbols (macros)
+# Add project symbols (macros) -- firmware header identity fields.
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user defined symbols
+    FW_PRODUCT_ID=${PRODUCT_ID}
+    FW_HW_REVISION=${HW_REVISION}
+    FW_VERSION_VALUE=${FW_VERSION}
 )
 
 # Remove wrong libob.a library dependency when using cpp files
@@ -88,3 +99,26 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
 
     # Add user defined libraries
 )
+
+# ---------- Post-build: generate app.bin with embedded fw_header_t ----------
+# Requires Python 3.  gen_app_bin.py patches image_size and image_crc32 fields
+# in the .fw_header section so the bootloader can read them without metadata.
+find_program(PYTHON_EXECUTABLE NAMES python3 python)
+if(PYTHON_EXECUTABLE)
+    add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_OBJCOPY} -O binary
+                $<TARGET_FILE:${CMAKE_PROJECT_NAME}>
+                ${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}.bin
+        COMMAND ${CMAKE_SIZE} $<TARGET_FILE:${CMAKE_PROJECT_NAME}>
+        COMMAND ${PYTHON_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tools/gen_app_bin.py
+                --input   ${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}.bin
+                --output  ${CMAKE_BINARY_DIR}/app.bin
+                --product-id  ${PRODUCT_ID}
+                --hw-revision ${HW_REVISION}
+                --fw-version  ${FW_VERSION}
+        COMMENT "Generating app.bin with embedded firmware header"
+    )
+else()
+    message(WARNING "Python not found -- app.bin will not be generated automatically")
+endif()
