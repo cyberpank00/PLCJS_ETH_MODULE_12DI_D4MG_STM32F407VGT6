@@ -79,6 +79,12 @@ SECTIONS
   {
     . = ALIGN(4);
     KEEP(*(.isr_vector)) /* Startup code */
+    /* Pad to FW_HEADER_OFFSET (0x200) so that .fw_header is placed at a
+     * fixed, known offset that the bootloader can find regardless of the
+     * actual vector-table size.  FLASH starts at 0x08040000 which is already
+     * aligned to 0x200, so ALIGN(0x200) advances to exactly 0x08040200. */
+    . = ALIGN(0x200);
+    KEEP(*(.fw_header))  /* Firmware metadata header (filled by gen_app_bin.py) */
     . = ALIGN(4);
   } >FLASH
 

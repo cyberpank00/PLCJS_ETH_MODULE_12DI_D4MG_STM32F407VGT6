@@ -15,6 +15,7 @@
   *      122     - uptime, seconds (low word)
   *      123     - uptime, seconds (high word)
   *      124     - active poll mask of DI1..DI12 as a 12-bit value
+  *      125     - module ID (read-only, identifies hardware variant)
   *
   *    Holding Registers (FC03/FC06/FC10):
   *      100     - DI filter time, ms (10..1000), default 50
@@ -74,6 +75,15 @@ extern "C" {
 #define MB_IR_UPTIME_LO             122u
 #define MB_IR_UPTIME_HI             123u
 #define MB_IR_DI_MASK               124u
+#define MB_IR_MODULE_ID             125u
+
+/* Module ID values for MB_IR_MODULE_ID (register 125).
+ * Select the active variant; comment out the rest. */
+#define MODULE_ID_12DI  0x12D1u  /* 12x DI — 12DI/D4MG (this build) */
+/* #define MODULE_ID_12D0  0x12D0u */  /* 12x DO                    */
+/* #define MODULE_ID_04RD  0x04DDu */  /* 4x Relay-DO               */
+/* #define MODULE_ID_08A1  0x08A1u */  /* 8x AI variant 1           */
+/* #define MODULE_ID_08A0  0x08A0u */  /* 8x AO variant 0           */
 
 #define MB_DI_COUNT                 12u
 
