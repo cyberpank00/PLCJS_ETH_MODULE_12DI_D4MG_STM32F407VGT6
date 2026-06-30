@@ -145,7 +145,107 @@ OTA-обновление → бутлоадер читает product_id/hw_revis
 STM32_Programmer_CLI -c port=SWD -w build/Debug/PLCJS_ETH_MODULE_12DI_D4MG_STM32F407VGT6.elf -v -rst
 ```
 
-Через bootloader OTA используется `app.bin` из `build/Debug` и клиент `tools/fw_update.py` из bootloader-репозитория.
+Через bootloader OTA используется `.bin` из `build/Debug` и клиент `tools/fw_update.mjs` из bootloader-репозитория (см. раздел ниже).
+
+## OTA обновление (fw_update.mjs)
+
+Клиент `tools/fw_update.mjs` находится в репозитории **bootloader** рядом с этим проектом.  
+Он говорит с bootloader по Modbus TCP и может управлять как bootloader, так и запущенным приложением.
+
+### Требования
+
+- **Node.js 18+** (ES-модули, top-level await)
+- внешних npm-пакетов **нет** — встроенный `node:net`
+
+### IP-адреса по умолчанию
+
+| Роль | Адрес | Опция |
+|---|---|---|
+| Bootloader | `192.168.142.99` | `--boot-ip` / `--ip` |
+| Приложение | `192.168.142.98` | `--app-ip` |
+| Modbus TCP port | `502` | `--port` |
+
+### Команды
+
+| Команда | Цель | Описание |
+|---|---|---|
+| `status` | bootloader | Прочитать и вывести все статусные регистры bootloader |
+| `update <file.bin>` | bootloader | Загрузить новую прошивку (4 шага: BEGIN → WRITE → FINALIZE → INSTALL) |
+| `abort` | bootloader | Прервать текущую OTA-сессию |
+| `reboot` | bootloader | Software reset (bootloader немедленно уходит в reset) |
+| `app-bootloader` | приложение | Попросить приложение перейти в bootloader (ждёт готовности и выводит `status`) |
+| `app-reboot` | приложение | Перезагрузить приложение |
+| `app-factory-reset` | приложение | Сбросить настройки приложения на дефолты |
+
+### Типичный сценарий OTA
+
+```powershell
+# 1. Убедиться, что приложение запущено и отвечает
+node tools/fw_update.mjs app-reboot --app-ip 192.168.142.98
+
+# 2. Перевести приложение в режим bootloader
+#    (скрипт ждёт до 20 с и автоматически выводит status)
+node tools/fw_update.mjs app-bootloader --app-ip 192.168.142.98 --boot-ip 192.168.142.99
+
+# 3. Загрузить новую прошивку
+node tools/fw_update.mjs update build/Debug/PLCJS_ETH_MODULE_12DI_D4MG_STM32F407VGT6.bin `
+  --boot-ip 192.168.142.99
+
+# После INSTALL bootloader автоматически перезагружается в приложение.
+```
+
+### Опции
+
+| Опция | Описание | Дефолт |
+|---|---|---|
+| `--boot-ip <addr>` / `--ip <addr>` | IP bootloader | `192.168.142.99` |
+| `--app-ip <addr>` | IP приложения | `192.168.142.98` |
+| `--port <n>` | Modbus TCP порт | `502` |
+| `--version <hex>` | Версия прошивки в формате `0xMMmmpp` (передаётся в BEGIN_UPDATE) | `0x00010000` |
+
+Пример с явными параметрами:
+
+```powershell
+node tools/fw_update.mjs update build/Debug/PLCJS_ETH_MODULE_12DI_D4MG_STM32F407VGT6.bin `
+  --boot-ip 192.168.10.50 --port 502 --version 0x00010100
+```
+
+### Статус bootloader
+
+Команда `status` выводит:
+
+```
+Magic:          0xB00710AD  OK
+BL version:     1.0.0
+Boot state:     BOOT_WAIT_COMMAND (2)
+App valid:      1
+App version:    1.1.0
+Product ID:     0x12D1D4A0
+HW revision:    1
+Last error:     NONE (0)
+Cmd status:     IDLE (0)
+Staging valid:  0
+```
+
+Состояние `BOOT_WAIT_COMMAND (2)` означает, что bootloader готов принять команду `update`.
+
+### Ошибки и восстановление
+
+| Ошибка | Причина | Действие |
+|---|---|---|
+| `PRODUCT_MISMATCH` | `product_id` в `.bin` не совпадает с bootloader | Убедиться, что собран правильный вариант (`-DPRODUCT_ID=...`) |
+| `HW_REV_MISMATCH` | `hw_revision` не совпадает | Проверить `-DHW_REVISION=...` при сборке |
+| `BLOCK_CRC` / `IMAGE_CRC` | Повреждение данных при передаче | Повторить `update`; если не помогает — `abort` |
+| `FLASH_ERASE` / `FLASH_WRITE` | Ошибка записи Flash | `abort`, затем `reboot`; при повторении — ST-Link |
+| `UPDATE_TIMEOUT` | Bootloader не получил все блоки за отведённое время | `abort`, повторить с более стабильной сетью |
+
+Если bootloader завис в состоянии `BOOT_ERROR` или `BOOT_RECEIVE_FW`:
+
+```powershell
+# Прервать сессию и перезагрузить bootloader
+node tools/fw_update.mjs abort --boot-ip 192.168.142.99
+node tools/fw_update.mjs reboot --boot-ip 192.168.142.99
+```
 
 ## Сеть
 
