@@ -29,6 +29,7 @@
 | MCU | `STM32F407VGT6`, Cortex-M4F |
 | Ethernet | `KSZ8863` Ethernet switch/PHY, RMII |
 | Дискретные входы | 12 входов, active-low, внутренние pull-up MCU |
+| Температура | внутренний датчик MCU (`ADC1_IN16`), доступен по HR130 |
 | Factory reset | кнопка `FACT_RES`, active-low |
 | Индикация | `STAT_LED`, active-high |
 | Watchdog | `IWDG`, обновляется из основного цикла приложения |
@@ -54,7 +55,7 @@ RAM:
 
 ## Сборка
 
-Требуется STM32CubeCLT с `starm-clang`, `cmake`, `ninja` и `python3`.
+Требуется STM32CubeCLT с `starm-clang`, `cmake` и `ninja`.
 
 Стандартная сборка для варианта 12-DI/D4MG (`PRODUCT_ID=0x12D1D4A0`, `HW_REVISION=1`):
 
@@ -69,18 +70,12 @@ cmake --build build/Debug
 
 - `build/Debug/PLCJS_ETH_MODULE_12DI_D4MG_STM32F407VGT6.elf`
 - `build/Debug/PLCJS_ETH_MODULE_12DI_D4MG_STM32F407VGT6.hex`
-- `build/Debug/PLCJS_ETH_MODULE_12DI_D4MG_STM32F407VGT6.bin`
-- `build/Debug/app.bin` — OTA image для bootloader, с встроенным `fw_header_t`
+- `build/Debug/PLCJS_ETH_MODULE_12DI_D4MG_STM32F407VGT6.bin` — OTA image для bootloader
 
-Post-build шаг автоматически запускает `tools/gen_app_bin.py`, который:
+Post-build шаг генерирует `.hex` и `.bin` из ELF через `objcopy`. Дополнительных скриптов не требуется.
 
-1. берёт сырой `.bin`
-2. проверяет, что по смещению `0x200` находится корректный `fw_header_t` (magic `"PLCJ"`)
-3. заполняет поля `image_size` и `image_crc32` (CRC32 с полем CRC = 0)
-4. сохраняет результат как `app.bin`
-
-Итоговый `app.bin` содержит заголовок с `product_id`, `hw_revision` и `fw_version`,
-которые бутлоадер проверяет из самого бинарника при OTA-обновлении.
+`.bin` содержит встроенный `fw_header_t` по смещению `0x200` (magic `"PLCJ"`) с `product_id`,
+`hw_revision` и `fw_version`. Бутлоадер проверяет эти поля при OTA-обновлении.
 
 ## Многовариантная сборка
 
@@ -135,8 +130,7 @@ cmake -S . -B build/8ao -G Ninja `
                                        -DFW_HW_REVISION=1
                                        -DFW_VERSION_VALUE=0x00010000
        → линкер помещает g_fw_header в секцию .fw_header по смещению 0x200
-       → gen_app_bin.py заполняет image_size и image_crc32
-       → app.bin готов
+       → objcopy генерирует .bin — он же является OTA image
 
 OTA-обновление → бутлоадер читает product_id/hw_revision из бинарника
                → при несоответствии: PRODUCT_MISMATCH, BOOT_ERROR
@@ -220,7 +214,7 @@ STM32_Programmer_CLI -c port=SWD -w build/Debug/PLCJS_ETH_MODULE_12DI_D4MG_STM32
 | No polling | 1 короткая вспышка каждые 3 секунды |
 | Polling | 2 короткие вспышки каждые 1.5 секунды |
 | No link | 3 короткие вспышки каждые 3 секунды |
-| Factory reset | непрерывное мигание, дефолт `300 ms ON / 100 ms OFF` |
+| Factory reset | непрерывное мигание, дефолт `100 ms ON / 100 ms OFF` |
 
 Паттерны `idle -> polling -> idle` и `no link` были подтверждены визуально на модуле.
 
@@ -242,6 +236,7 @@ STM32_Programmer_CLI -c port=SWD -w build/Debug/PLCJS_ETH_MODULE_12DI_D4MG_STM32
 | `122` | uptime seconds, low word |
 | `123` | uptime seconds, high word |
 | `124` | 12-bit DI mask |
+| `125` | module ID (идентификатор варианта модуля, read-only; `0x12D1` для 12DI/D4MG) |
 
 ### Holding Registers, FC03 / FC06 / FC16
 
@@ -259,6 +254,7 @@ STM32_Programmer_CLI -c port=SWD -w build/Debug/PLCJS_ETH_MODULE_12DI_D4MG_STM32
 | `118` | `TRIG_REBOOT` | write `0xB00B` | soft reset |
 | `118` | `TRIG_BOOTLOADER` | write `0xB007` | перейти в bootloader |
 | `119` | `TRIG_FACTORY_RESET` | write `0xDEAD` | defaults + save + reset |
+| `130` | `TEMPERATURE` | signed, 0.1 degC (read-only) | — |
 
 Некорректные значения возвращают Modbus exception `ILLEGAL_DATA_VALUE`. Некорректные адреса возвращают `ILLEGAL_DATA_ADDRESS`.
 
@@ -298,6 +294,16 @@ Factory reset:
 
 ```python
 client.write_register(address=119, value=0xDEAD, device_id=1)
+```
+
+Чтение температуры MCU (HR130, signed 0.1 degC):
+
+```python
+rr = client.read_holding_registers(address=130, count=1, device_id=1)
+raw = rr.registers[0]
+# Интерпретировать как знаковое 16-bit
+temp_dc = raw if raw < 0x8000 else raw - 0x10000
+print(f"Температура: {temp_dc / 10:.1f} °C")
 ```
 
 ## Настройки во Flash
