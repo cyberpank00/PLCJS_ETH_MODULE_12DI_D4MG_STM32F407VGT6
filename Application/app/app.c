@@ -25,6 +25,7 @@
 #include "modbus_app.h"
 #include "modbus_tcp_server.h"
 #include "settings.h"
+#include "temp_module.h"
 
 /* The LwIP MX_LWIP_Init() exposes its struct netif so that we can override
  * the addressing after MX_LWIP_Init() has run. */
@@ -178,6 +179,7 @@ void app_run(void)
 
     /* Initialise the remaining hardware drivers. */
     di_module_init(s->di_filter_ms);
+    temp_module_init();
     modbus_app_init();
 
     /* Apply network configuration (static or DHCP). */

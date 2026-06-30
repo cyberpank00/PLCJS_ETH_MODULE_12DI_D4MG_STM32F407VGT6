@@ -59,6 +59,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Application/app/app.c
     Application/di/di_module.c
     Application/led/led_module.c
+    Application/temp/temp_module.c
     Application/button/button_module.c
     Application/ksz8863/ksz8863.c
     Application/settings/settings.c
@@ -74,6 +75,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Application/app
     Application/di
     Application/led
+    Application/temp
     Application/button
     Application/ksz8863
     Application/settings

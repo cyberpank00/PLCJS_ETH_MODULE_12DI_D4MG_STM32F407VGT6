@@ -29,6 +29,7 @@
   *      117     - "save settings" trigger - write 0xA5A5 to commit to Flash
   *      118     - "reboot" trigger          - write 0xB00B to soft-reset
   *      119     - "factory reset" trigger   - write 0xDEAD to reload defaults
+  *      130     - on-chip temperature, signed 0.1 degC (read-only; ADC1_IN16)
   ******************************************************************************
   */
 #ifndef APPLICATION_MODBUS_APP_H
@@ -68,6 +69,8 @@ extern "C" {
 #define MB_HR_TRIG_SAVE             117u
 #define MB_HR_TRIG_REBOOT           118u
 #define MB_HR_TRIG_FACTORY_RESET    119u
+/* On-chip temperature sensor (ADC1_IN16), read-only, signed 0.1 degC. */
+#define MB_HR_TEMPERATURE           130u
 
 /* Input register addresses. */
 #define MB_IR_FW_VER_MAJOR          120u
