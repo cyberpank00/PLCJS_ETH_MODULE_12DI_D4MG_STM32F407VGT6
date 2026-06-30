@@ -15,6 +15,7 @@
 #include "di_module.h"
 #include "led_module.h"
 #include "settings.h"
+#include "temp_module.h"
 
 /* ---------------------------------------------------------------------------
  * Firmware version
@@ -213,6 +214,10 @@ static uint16_t read_holding(uint16_t address)
     case MB_HR_TRIG_FACTORY_RESET:
         return 0u;
 
+    case MB_HR_TEMPERATURE:
+        /* Read-only on-chip temperature, signed 0.1 degC as two's complement. */
+        return (uint16_t)temp_module_read_decicelsius();
+
     default:
         return 0u;
     }
@@ -226,6 +231,11 @@ static bool holding_address_valid(uint16_t address)
     if (address == MB_HR_TRIG_SAVE ||
         address == MB_HR_TRIG_REBOOT ||
         address == MB_HR_TRIG_FACTORY_RESET) {
+        return true;
+    }
+    if (address == MB_HR_TEMPERATURE) {
+        /* Readable; writes fall through to apply_holding_write's default case
+         * and are rejected with ILLEGAL_DATA_ADDRESS (sensor is read-only). */
         return true;
     }
     return false;
