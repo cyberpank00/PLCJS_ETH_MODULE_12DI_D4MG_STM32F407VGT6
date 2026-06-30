@@ -42,6 +42,17 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined library search paths
 )
 
+# ---------- Module identity (overridable per module variant) ---------------
+# Pass -DPRODUCT_ID=0x... / -DHW_REVISION=0xMMmm / -DFW_VERSION=0xMMmm on the
+# cmake command line to customise the firmware header for each module variant.
+#
+# HW_REVISION encoding: (major << 8) | minor  →  e.g. hw:01.02 = 0x0102
+# FW_VERSION  encoding: (major << 8) | minor  →  e.g. fw:01.02 = 0x0102
+# OTA acceptance: product_id exact match + hw_revision major byte match.
+set(PRODUCT_ID    "0x12D1D4A0" CACHE STRING "Product ID embedded in fw_header_t")
+set(HW_REVISION   "0x0101"     CACHE STRING "HW revision (major<<8|minor), e.g. hw:01.01 = 0x0101")
+set(FW_VERSION    "0x0101"     CACHE STRING "FW version  (major<<8|minor), e.g. fw:01.01 = 0x0101")
+
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Application sources
@@ -53,6 +64,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Application/settings/settings.c
     Application/modbus/modbus_app.c
     Application/modbus/modbus_tcp_server.c
+    Application/fw_header/fw_header.c
     # Third-party
     Application/third_party/nanomodbus/nanomodbus.c
 )
@@ -66,6 +78,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Application/ksz8863
     Application/settings
     Application/modbus
+    Application/fw_header
     Application/third_party/nanomodbus
 )
 
@@ -74,9 +87,11 @@ target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
     NMBS_CLIENT_DISABLED=1
 )
 
-# Add project symbols (macros)
+# Add project symbols (macros) -- firmware header identity fields.
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user defined symbols
+    FW_PRODUCT_ID=${PRODUCT_ID}
+    FW_HW_REVISION=${HW_REVISION}
+    FW_VERSION_VALUE=${FW_VERSION}
 )
 
 # Remove wrong libob.a library dependency when using cpp files
@@ -87,4 +102,16 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     stm32cubemx
 
     # Add user defined libraries
+)
+
+# ---------- Post-build: generate .hex and .bin images ---------------------
+add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_SIZE} $<TARGET_FILE:${CMAKE_PROJECT_NAME}>
+    COMMAND ${CMAKE_OBJCOPY} -O ihex
+            $<TARGET_FILE:${CMAKE_PROJECT_NAME}>
+            ${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}.hex
+    COMMAND ${CMAKE_OBJCOPY} -O binary
+            $<TARGET_FILE:${CMAKE_PROJECT_NAME}>
+            ${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}.bin
+    COMMENT "Generating ${CMAKE_PROJECT_NAME}.hex and ${CMAKE_PROJECT_NAME}.bin"
 )
