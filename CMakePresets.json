@@ -6,8 +6,11 @@
             "hidden": true,
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build/${presetName}",
-		    "toolchainFile": "${sourceDir}/cmake/starm-clang.cmake",
+            "toolchainFile": "${sourceDir}/cmake/starm-clang.cmake",
             "cacheVariables": {
+                "PRODUCT_ID":   "0x12D1D4A0",
+                "HW_REVISION":  "0x0101",
+                "FW_VERSION":   "0x0102"
             }
         },
         {
