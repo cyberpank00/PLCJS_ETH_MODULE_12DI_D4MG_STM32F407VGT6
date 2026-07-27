@@ -29,6 +29,7 @@
 /* USER CODE BEGIN Include for User BSP */
 #include "ksz8863.h"
 #include "lwip/dhcp.h"
+#include "net_id.h"
 #include "settings.h"
 /* USER CODE END Include for User BSP */
 #include <string.h>
@@ -204,7 +205,9 @@ static void low_level_init(struct netif *netif)
   heth.Init.RxBuffLen = 1536;
 
   /* USER CODE BEGIN MACADDRESS */
-
+  /* Per-device MAC from the chip UID: unique per board and identical to the
+   * address the bootloader presents. */
+  net_id_get_mac(MACAddr);
   /* USER CODE END MACADDRESS */
 
   hal_eth_init_status = HAL_ETH_Init(&heth);
