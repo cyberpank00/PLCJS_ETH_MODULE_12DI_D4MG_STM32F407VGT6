@@ -42,16 +42,17 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined library search paths
 )
 
-# ---------- Module identity (overridable per module variant) ---------------
-# Pass -DPRODUCT_ID=0x... / -DHW_REVISION=0xMMmm / -DFW_VERSION=0xMMmm on the
-# cmake command line to customise the firmware header for each module variant.
+# ---------- Module identity ------------------------------------------------
+# Edit ONLY these three lines to change the version / hardware variant.
+# FORCE ensures CMakeLists.txt is always the single source of truth —
+# no need to touch CMakePresets.json or .vscode/settings.json.
 #
-# HW_REVISION encoding: (major << 8) | minor  →  e.g. hw:01.02 = 0x0102
-# FW_VERSION  encoding: (major << 8) | minor  →  e.g. fw:01.02 = 0x0102
+# HW_REVISION encoding: (major << 8) | minor  →  e.g. hw:01.01 = 0x0101
+# FW_VERSION  encoding: (major << 8) | minor  →  e.g. fw:01.04 = 0x0104
 # OTA acceptance: product_id exact match + hw_revision major byte match.
-set(PRODUCT_ID    "0x12D1D4A0" CACHE STRING "Product ID embedded in fw_header_t")
-set(HW_REVISION   "0x0101"     CACHE STRING "HW revision (major<<8|minor), e.g. hw:01.01 = 0x0101")
-set(FW_VERSION    "0x0102"     CACHE STRING "FW version  (major<<8|minor), e.g. fw:01.02 = 0x0102")
+set(PRODUCT_ID    "0x504C1201" CACHE STRING "Product ID embedded in fw_header_t (0x504C=PL, 12ch, DI)" FORCE)
+set(HW_REVISION   "0x0101"     CACHE STRING "HW revision (major<<8|minor), e.g. hw:01.01 = 0x0101" FORCE)
+set(FW_VERSION    "0x0104"     CACHE STRING "FW version  (major<<8|minor), e.g. fw:01.04 = 0x0104" FORCE)
 
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE

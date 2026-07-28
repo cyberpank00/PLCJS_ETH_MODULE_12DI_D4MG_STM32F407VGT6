@@ -13,15 +13,17 @@
 #include "stm32f4xx_hal.h"
 
 #include "di_module.h"
+#include "fw_header.h"
 #include "led_module.h"
 #include "settings.h"
 #include "temp_module.h"
 
 /* ---------------------------------------------------------------------------
- * Firmware version
+ * Firmware version — derived from FW_VERSION_VALUE set by CMake so that
+ * registers 120/121 always match the value embedded in the fw_header.
  * ------------------------------------------------------------------------- */
-#define FW_VER_MAJOR    1u
-#define FW_VER_MINOR    0u
+#define FW_VER_MAJOR    ((FW_VERSION_VALUE >> 8u) & 0xFFu)
+#define FW_VER_MINOR    (FW_VERSION_VALUE & 0xFFu)
 
 /* ---------------------------------------------------------------------------
  * Pending action flags driven by special holding-register triggers.
