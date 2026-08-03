@@ -161,8 +161,8 @@ STM32_Programmer_CLI -c port=SWD -w build/Debug/PLCJS_ETH_MODULE_12DI_D4MG_STM32
 
 | Роль | Адрес | Опция |
 |---|---|---|
-| Bootloader | `192.168.142.99` | `--boot-ip` / `--ip` |
-| Приложение | `192.168.142.98` | `--app-ip` |
+| Bootloader | `192.168.1.2` | `--boot-ip` / `--ip` |
+| Приложение | `192.168.1.10` | `--app-ip` |
 | Modbus TCP port | `502` | `--port` |
 
 ### Команды
@@ -181,15 +181,15 @@ STM32_Programmer_CLI -c port=SWD -w build/Debug/PLCJS_ETH_MODULE_12DI_D4MG_STM32
 
 ```powershell
 # 1. Убедиться, что приложение запущено и отвечает
-node tools/fw_update.mjs app-reboot --app-ip 192.168.142.98
+node tools/fw_update.mjs app-reboot --app-ip 192.168.1.10
 
 # 2. Перевести приложение в режим bootloader
 #    (скрипт ждёт до 20 с и автоматически выводит status)
-node tools/fw_update.mjs app-bootloader --app-ip 192.168.142.98 --boot-ip 192.168.142.99
+node tools/fw_update.mjs app-bootloader --app-ip 192.168.1.10 --boot-ip 192.168.1.2
 
 # 3. Загрузить новую прошивку
 node tools/fw_update.mjs update build/Debug/PLCJS_ETH_MODULE_12DI_D4MG_STM32F407VGT6.bin `
-  --boot-ip 192.168.142.99
+  --boot-ip 192.168.1.2
 
 # После INSTALL bootloader автоматически перезагружается в приложение.
 ```
@@ -198,8 +198,8 @@ node tools/fw_update.mjs update build/Debug/PLCJS_ETH_MODULE_12DI_D4MG_STM32F407
 
 | Опция | Описание | Дефолт |
 |---|---|---|
-| `--boot-ip <addr>` / `--ip <addr>` | IP bootloader | `192.168.142.99` |
-| `--app-ip <addr>` | IP приложения | `192.168.142.98` |
+| `--boot-ip <addr>` / `--ip <addr>` | IP bootloader | `192.168.1.2` |
+| `--app-ip <addr>` | IP приложения | `192.168.1.10` |
 | `--port <n>` | Modbus TCP порт | `502` |
 | `--version <hex>` | Версия прошивки в формате `0xMMmmpp` (передаётся в BEGIN_UPDATE) | `0x00010000` |
 
@@ -243,8 +243,8 @@ Staging valid:  0
 
 ```powershell
 # Прервать сессию и перезагрузить bootloader
-node tools/fw_update.mjs abort --boot-ip 192.168.142.99
-node tools/fw_update.mjs reboot --boot-ip 192.168.142.99
+node tools/fw_update.mjs abort --boot-ip 192.168.1.2
+node tools/fw_update.mjs reboot --boot-ip 192.168.1.2
 ```
 
 ## Сеть
@@ -255,20 +255,20 @@ node tools/fw_update.mjs reboot --boot-ip 192.168.142.99
 
 | Параметр | Значение |
 |---|---|
-| DHCP | `1` / включен |
-| Static IP | `192.168.142.147` |
+| DHCP | `0` / выключен (static по умолчанию) |
+| Static IP | `192.168.1.10` |
 | Netmask | `255.255.255.0` |
-| Gateway | `192.168.142.1` |
+| Gateway | `192.168.1.1` |
 | Modbus TCP port | `502` |
 | Modbus unit id | `1` |
 
-В тестовой сети DHCP выдавал приложению адрес `192.168.142.98`. Bootloader в протестированной конфигурации доступен на `192.168.142.99`.
+Приложение по умолчанию использует static IP `192.168.1.10` (DHCP выключен). Bootloader в протестированной конфигурации доступен на `192.168.1.2`.
 
 Важно:
 
 - `USE_DHCP = 1` означает, что static IP хранится как запасная настройка, но не применяется
 - изменения IP/port/DHCP вступают в силу после `TRIG_SAVE` и `TRIG_REBOOT`
-- static IP mode был проверен на `192.168.142.147`
+- static IP mode был проверен на `192.168.1.10`
 
 ## Дискретные входы
 
@@ -365,7 +365,7 @@ node tools/fw_update.mjs reboot --boot-ip 192.168.142.99
 ```python
 from pymodbus.client import ModbusTcpClient
 
-client = ModbusTcpClient("192.168.142.98", port=502, timeout=5)
+client = ModbusTcpClient("192.168.1.10", port=502, timeout=5)
 client.connect()
 rr = client.read_input_registers(address=120, count=5, device_id=1)
 print(rr.registers)
