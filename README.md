@@ -1,7 +1,7 @@
-# PLCJS Ethernet 12DI
+# PLCJS Ethernet модуль ввода дискретных сигналов 12DI
 
 <p align="center">
-  <img src="DOC/images/foto_1di.png" alt="Внешний вид PLCJS Ethernet 12DI" width="700">
+  <img src="DOC/images/foto_12di.png" alt="Внешний вид PLCJS Ethernet 12DI" width="700">
 </p>
 
 <p align="center"><strong>Внешний вид</strong></p>
