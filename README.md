@@ -1,5 +1,11 @@
 # PLCJS Ethernet 12DI
 
+<p align="center">
+  <img src="DOC/images/foto_1di.png" alt="Внешний вид PLCJS Ethernet 12DI" width="700">
+</p>
+
+<p align="center"><strong>Внешний вид</strong></p>
+
 Ethernet-модуль промышленной автоматики с 12 дискретными входами 24VDC для сбора
 состояния датчиков, кнопок, концевых выключателей, контактов реле и других
 дискретных сигналов. Модуль подключается к сети Ethernet и предоставляет
@@ -184,6 +190,13 @@ New-NetFirewallRule -DisplayName "PLCJS PDP discovery" -Direction Inbound `
 
 ## 5. Подключение и логика входов
 
+### Схема подключения
+
+<p align="center">
+  <img src="DOC/images/front_main.png" alt="Схема подключения PLCJS Ethernet 12DI" width="900">
+</p>
+
+<p align="center"><strong>Схема подключения</strong></p>
 
 | Канал | Программный номер | Состояние `1` | Состояние `0` | GPIO MCU |
 |---|---:|---|---|---|
