@@ -23,6 +23,7 @@
 #include "button_module.h"
 #include "di_module.h"
 #include "discovery.h"
+#include "ksz8863.h"
 #include "led_module.h"
 #include "modbus_app.h"
 #include "modbus_tcp_server.h"
@@ -43,6 +44,7 @@ uint8_t modbus_app_take_pending_save(void);
 uint8_t modbus_app_take_pending_reboot(void);
 uint8_t modbus_app_take_pending_factory_reset(void);
 uint8_t modbus_app_take_pending_bootloader(void);
+uint8_t modbus_app_take_pending_switch_reset(void);
 uint32_t modbus_app_last_request_tick(void);
 
 /* ---------------------------------------------------------------------------
@@ -230,14 +232,7 @@ void app_run(void)
     /* HAL_ETH_Init() has already run by the time we get here (LwIP init
      * called it from low_level_init()), so SMI/MIIM access is available.
      * Ensure KSZ8863 port 3 is in RMII mode (bit 6 of Global Control 4). */
-    {
-        uint32_t tmp = 0;
-        HAL_ETH_ReadPHYRegister(&heth, 0, 6, &tmp);  /* Global Control 4 */
-        if ((tmp & 0x0040u) == 0u) {
-            tmp |= 0x0040u;
-            HAL_ETH_WritePHYRegister(&heth, 0, 6, tmp);
-        }
-    }
+    ksz8863_ensure_rmii_port3();
 
     /* Spawn the DI sampling task. The LED task was started earlier so that
      * the factory-reset burst is visible during the boot-time button-hold
@@ -284,6 +279,12 @@ void app_run(void)
         if (discovery_take_pending_reboot()) {
             NVIC_SystemReset();
             /* Not reached. */
+        }
+        if (modbus_app_take_pending_switch_reset()) {
+            /* Operator-requested KSZ8863 recovery. Only flags the request:
+             * the reset itself runs in the link-polling thread
+             * (ksz8863_service) so all SMI access stays on one thread. */
+            ksz8863_request_recovery();
         }
         if (modbus_app_take_pending_factory_reset()) {
             perform_factory_reset();
