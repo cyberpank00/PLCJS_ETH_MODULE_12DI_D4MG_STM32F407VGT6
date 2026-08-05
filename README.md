@@ -352,6 +352,7 @@ node tools/fw_update.mjs reboot --boot-ip 192.168.1.2
 | `117` | `TRIG_SAVE` | write `0xA5A5` | сохранить настройки |
 | `118` | `TRIG_REBOOT` | write `0xB00B` | soft reset |
 | `118` | `TRIG_BOOTLOADER` | write `0xB007` | перейти в bootloader |
+| `118` | `TRIG_SWITCH_RESET` | write `0x8863` | аппаратный сброс KSZ8863 (recovery) |
 | `119` | `TRIG_FACTORY_RESET` | write `0xDEAD` | defaults + save + reset |
 | `130` | `TEMPERATURE` | signed, 0.1 degC (read-only) | — |
 
