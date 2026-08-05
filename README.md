@@ -255,20 +255,19 @@ node tools/fw_update.mjs reboot --boot-ip 192.168.1.2
 
 | Параметр | Значение |
 |---|---|
-| DHCP | `0` / выключен (static по умолчанию) |
-| Static IP | `192.168.1.10` |
-| Netmask | `255.255.255.0` |
-| Gateway | `192.168.1.1` |
+| Сетевой режим (`USE_DHCP`) | `2` = link-local (заводской) |
+| Заводской адрес | `169.254.<mac[4]>.<mac[5]>` /16, вычисляется из UID |
+| Резервные static-поля | IP `192.168.1.10`, маска `255.255.255.0`, шлюз `192.168.1.1` |
 | Modbus TCP port | `502` |
 | Modbus unit id | `1` |
 
-Приложение по умолчанию использует static IP `192.168.1.10` (DHCP выключен). Bootloader в протестированной конфигурации доступен на `192.168.1.2`.
+Из коробки устройство поднимается на **AutoIP link-local** (`169.254.x.y`), поэтому не конфликтует с сетью заказчика и находится по MAC через discovery (UDP-broadcast, порт `20556`). Назначьте рабочий IP вкладкой «Обнаружение» в ModbusTool, discovery-командой `SET_NET`, или Modbus-клиентом на адресе с наклейки. Адрес наклейки можно вычислить заранее: `node tools/device_id.mjs --stlink --variant 12di` (в репозитории загрузчика).
 
 Важно:
 
-- `USE_DHCP = 1` означает, что static IP хранится как запасная настройка, но не применяется
-- изменения IP/port/DHCP вступают в силу после `TRIG_SAVE` и `TRIG_REBOOT`
-- static IP mode был проверен на `192.168.1.10`
+- `USE_DHCP`: `0` = static, `1` = DHCP, `2` = link-local (заводской по умолчанию)
+- изменения IP/режима применяются на лету после `TRIG_SAVE` (перезагрузка не требуется)
+- discovery требует входящего `UDP:20556` в брандмауэре хоста
 
 ## Дискретные входы
 
@@ -349,7 +348,7 @@ node tools/fw_update.mjs reboot --boot-ip 192.168.1.2
 | `104..107` | `IP_BASE` | IPv4 octets | после save + reboot |
 | `108..111` | `NETMASK_BASE` | IPv4 octets | после save + reboot |
 | `112..115` | `GATEWAY_BASE` | IPv4 octets | после save + reboot |
-| `116` | `USE_DHCP` | `0/1`, default `1` | после save + reboot |
+| `116` | `USE_DHCP` | `0` static / `1` DHCP / `2` link-local, default `2` | на лету после save |
 | `117` | `TRIG_SAVE` | write `0xA5A5` | сохранить настройки |
 | `118` | `TRIG_REBOOT` | write `0xB00B` | soft reset |
 | `118` | `TRIG_BOOTLOADER` | write `0xB007` | перейти в bootloader |
