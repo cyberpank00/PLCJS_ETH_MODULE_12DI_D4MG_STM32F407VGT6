@@ -3,6 +3,7 @@ build/
 
 # IDE / editor
 .vscode/
+.cache/
 
 # Local utilities (not part of the firmware)
 Utils/
