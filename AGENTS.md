@@ -55,7 +55,7 @@ and `LWIP/Target/lwipopts.h`. Diff carefully afterwards.
 | `di/` | 12-channel discrete input driver with software debounce/filter. |
 | `temp/` | On-chip temperature sensor (ADC1_IN16), exposed as HR130, signed 0.1 °C. |
 | `modbus/modbus_app.c` | Register-map adapter. **The map is documented in the header comment of `modbus_app.h`.** |
-| `modbus/modbus_tcp_server.c` | Single-client TCP server on LwIP netconn; newest connection wins. |
+| `modbus/modbus_tcp_server.c` | Multi-client (4 slots) TCP server on LwIP netconn; when full, the longest-silent client is evicted (newest-wins). |
 | `settings/` | Flash-backed settings, CRC32-protected, magic + version. |
 | `discovery/` | PDP responder, UDP/20556 broadcast. Address a device by MAC without an IP. |
 | `net_id/` | Derives MAC and link-local IPv4 from the 96-bit MCU UID. |
@@ -74,7 +74,7 @@ HR100, 10..1000 ms, default 50.
 ### Single sources of truth
 - **Module identity** — `Application/fw_header/fw_header.h`:
   `FW_PRODUCT_ID = 0x504C1201`, `FW_HW_REVISION = 0x0101`,
-  `FW_VERSION_VALUE = 0x0107`. `CMakeLists.txt` passes no identity defines.
+  `FW_VERSION_VALUE = 0x0109`. `CMakeLists.txt` passes no identity defines.
 - **Firmware version over Modbus** — IR120/IR121 derive from `FW_VERSION_VALUE`.
   Never hardcode a version in `modbus_app.c`.
 - **Register map** — the header comment of `modbus_app.h`, mirrored by the
@@ -84,7 +84,7 @@ HR100, 10..1000 ms, default 50.
 ### Version policy — bump the minor on every change
 
 **Mandatory.** Every change to firmware behaviour ships with `FW_VERSION_VALUE`
-in `fw_header.h` incremented by one minor (`0x0107` → `0x0108`). The version is
+in `fw_header.h` incremented by one minor (`0x0109` → `0x010A`). The version is
 the operator's only way to tell which build is running on a device in the field,
 so an un-bumped change is a defect.
 
@@ -145,9 +145,12 @@ fixes:
 - **Device name is 15 chars + NUL in a fixed 16-byte field**, and the PDP
   IDENTIFY response is a fixed 38 bytes. Must stay identical across every module
   variant and ModbusTool.
-- Modbus TCP is single-client, newest-wins: a new connection drops the old one,
-  so a hung client cannot lock the device out. A silent client is dropped after
-  `MB_IDLE_DROP_MS` (30 s).
+- Modbus TCP serves up to 4 clients from one task (round-robin, 2 ms
+  first-byte poll per idle slot). Only when all 4 slots are busy does a new
+  connection evict the longest-silent client; a silent client is dropped after
+  `MB_IDLE_DROP_MS` (30 s), so hung clients cannot lock the device out.
+  Register callbacks are shared and sequential — last write wins. Needs
+  `MEMP_NUM_NETCONN/NETBUF/TCP_PCB = 8` in `lwipopts.h`.
 - `LED_STATE_FACTORY_RESET` is sticky until reboot and overrides all other
   states and modes.
 - HR118 multiplexes distinct magics: `0xB00B` reboot, `0xB007` bootloader,
