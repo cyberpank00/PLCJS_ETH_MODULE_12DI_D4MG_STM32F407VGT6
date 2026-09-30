@@ -199,7 +199,7 @@ report are intentionally left blank.
 | KSZ8863 recovery | Modbus `0x8863` in holding register 118 |
 | Factory reset | Modbus `0xDEAD` in holding register 119 or `FACT_RES` |
 | Hardware revision | `0x010101` |
-| Firmware version | `0x0109` / 1.9 |
+| Firmware version | `0x010A` / 1.10 |
 | Module ID | `0x12D1` |
 | Product ID | `0x504C1201` |
 
@@ -484,7 +484,7 @@ Build results are written to `build/Release/`:
 | Module ID | `0x12D1` |
 | Product ID | `0x504C1201` |
 | HW revision | `0x010101` |
-| Firmware version | `0x0109` / 1.9 |
+| Firmware version | `0x010A` / 1.10 |
 
 An image built for another hardware variant must not be installed; the bootloader
 rejects a Product ID or hardware revision mismatch.

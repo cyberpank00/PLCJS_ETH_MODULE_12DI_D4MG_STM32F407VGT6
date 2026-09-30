@@ -184,7 +184,7 @@ New-NetFirewallRule -DisplayName "PLCJS PDP discovery" -Direction Inbound `
 | Восстановление KSZ8863 | Modbus `0x8863` в holding register 118 |
 | Сброс к заводским настройкам | Modbus `0xDEAD` в holding register 119 или FACT_RES |
 | Версия аппаратуры | `0x010101` в образе загрузчика/прошивки |
-| Версия прошивки | `0x0109` / 1.9 |
+| Версия прошивки | `0x010A` / 1.10 |
 | Module ID | `0x12D1` |
 | Product ID | `0x504C1201` |
 
@@ -467,7 +467,7 @@ cmake --build --preset Release
 | Module ID | `0x12D1` |
 | Product ID | `0x504C1201` |
 | HW revision | `0x010101` |
-| FW version | `0x0109` / 1.9 |
+| FW version | `0x010A` / 1.10 |
 
 Нельзя прошивать образ другого варианта: bootloader отклонит его на этапе
 проверки Product ID/HW revision.
