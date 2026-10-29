@@ -58,6 +58,7 @@ and `LWIP/Target/lwipopts.h`. Diff carefully afterwards.
 | `modbus/modbus_tcp_server.c` | Multi-client (4 slots) TCP server on LwIP netconn; when full, the longest-silent client is evicted (newest-wins). |
 | `settings/` | Flash-backed settings, CRC32-protected, magic + version. |
 | `discovery/` | PDP responder, UDP/20556 broadcast. Address a device by MAC without an IP. |
+| `addr_probe/` | Non-blocking ARP address-in-use probe (3 probes + wait, lwIP timers), identical to the bootloader's copy. PDP `SET_NET` (static/link-local) is applied only after it; status 1 = address taken. **`LWIP/Target/ethernetif.c` must call `addr_probe_input(p)` for every received frame before `netif->input()`.** |
 | `net_id/` | Derives MAC and link-local IPv4 from the 96-bit MCU UID. |
 | `ksz8863/` | SMI/MIIM driver for the Ethernet switch; reset policy and recovery. |
 | `led/` | STAT_LED state machine, 10 ms tick. |
@@ -74,7 +75,7 @@ HR100, 10..1000 ms, default 50.
 ### Single sources of truth
 - **Module identity** — `Application/fw_header/fw_header.h`:
   `FW_PRODUCT_ID = 0x504C1201`, `FW_HW_REVISION = 0x0101`,
-  `FW_VERSION_VALUE = 0x010A`. `CMakeLists.txt` passes no identity defines.
+  `FW_VERSION_VALUE = 0x010B`. `CMakeLists.txt` passes no identity defines.
 - **Firmware version over Modbus** — IR120/IR121 derive from `FW_VERSION_VALUE`.
   Never hardcode a version in `modbus_app.c`.
 - **Register map** — the header comment of `modbus_app.h`, mirrored by the
@@ -84,7 +85,7 @@ HR100, 10..1000 ms, default 50.
 ### Version policy — bump the minor on every change
 
 **Mandatory.** Every change to firmware behaviour ships with `FW_VERSION_VALUE`
-in `fw_header.h` incremented by one minor (`0x010A` → `0x010B`). The version is
+in `fw_header.h` incremented by one minor (`0x010B` → `0x010C`). The version is
 the operator's only way to tell which build is running on a device in the field,
 so an un-bumped change is a defect.
 
@@ -135,6 +136,16 @@ fixes:
 
 ## Gotchas
 
+- **`SET_NET` is probed, then saved.** `discovery.c` does not touch `settings_t`
+  until `addr_probe` reports the address free (status 0 after ~1 s, status 1 if
+  taken); re-applying the current address and retransmits of the pending request
+  are handled without a new probe. `MEMP_NUM_SYS_TIMEOUT` is 6 (DHCP + ARP + TCP +
+  reassembly + the probe timer) — keep it above the lwIP default when adding
+  timers. Boot-time stored static addresses are not probed.
+- **Settings-save bookkeeping.** `settings_save()` wraps the Flash write
+  (+ read-back) and counts successes: IR129 = saves since boot, IR130 = last
+  result (0 none, 1 ok, 2 failed). Tools use it to confirm a save; keep every
+  save going through `settings_save()`.
 - **Never reset the KSZ8863 on a warm reboot.** The switch forwards traffic
   between ports 1 and 2 autonomously, so it must survive an MCU reset — a reset
   drops both external links for seconds of auto-negotiation, and this module may

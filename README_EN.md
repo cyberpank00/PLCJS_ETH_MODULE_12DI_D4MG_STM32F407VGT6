@@ -199,7 +199,7 @@ report are intentionally left blank.
 | KSZ8863 recovery | Modbus `0x8863` in holding register 118 |
 | Factory reset | Modbus `0xDEAD` in holding register 119 or `FACT_RES` |
 | Hardware revision | `0x010101` |
-| Firmware version | `0x010A` / 1.10 |
+| Firmware version | `0x010B` / 1.11 |
 | Module ID | `0x12D1` |
 | Product ID | `0x504C1201` |
 
@@ -295,6 +295,8 @@ Addresses `0…11` contain the filtered state of DI1…DI12.
 | 123 | `UPTIME_HI` | `uint16` | Operating seconds, high word | R |
 | 124 | `DI_MASK` | `uint16` | 12-bit filtered input mask, bit 0 = DI1 | R |
 | 125 | `MODULE_ID` | `uint16` | Module identifier: `0x12D1` | R |
+| 129 | `SAVE_COUNT` | `uint16` | Successful settings saves since boot: Flash written and verified by read-back | R |
+| 130 | `SAVE_RESULT` | `uint16` | Last save result: 0 none, 1 OK, 2 failed | R |
 
 ```text
 uptime_seconds = (IR123 << 16) | IR122
@@ -368,7 +370,7 @@ The module supports PLCJS Discovery Protocol (PDP), UDP broadcast, port `20556`.
 | Command | Request | Response | Purpose |
 |---|---:|---:|---|
 | `IDENTIFY` | `0x01` | `0x81` | MAC, Product ID, HW/FW, network mode, IP, name |
-| `SET_NET` | `0x02` | `0x82` | Assign static/DHCP/link-local live |
+| `SET_NET` | `0x02` | `0x82` | Assign static/DHCP/link-local live; static/link-local are applied after an ARP address probe (~1 s), status 1 = address in use on the network |
 | `SET_NAME` | `0x03` | `0x83` | Set a device name up to 15 characters |
 | `FLASH_LED` | `0x04` | `0x84` | Flash STAT_LED for a specified time |
 | `REBOOT` | `0x05` | `0x85` | Reboot the application |
@@ -484,7 +486,7 @@ Build results are written to `build/Release/`:
 | Module ID | `0x12D1` |
 | Product ID | `0x504C1201` |
 | HW revision | `0x010101` |
-| Firmware version | `0x010A` / 1.10 |
+| Firmware version | `0x010B` / 1.11 |
 
 An image built for another hardware variant must not be installed; the bootloader
 rejects a Product ID or hardware revision mismatch.

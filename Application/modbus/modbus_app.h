@@ -16,6 +16,8 @@
   *      123     - uptime, seconds (high word)
   *      124     - active poll mask of DI1..DI12 as a 12-bit value
   *      125     - module ID (read-only, identifies hardware variant)
+  *      129     - successful settings saves since boot (Flash written + read-back)
+  *      130     - last save result: 0 none, 1 ok, 2 failed
   *
   *    Holding Registers (FC03/FC06/FC10):
   *      100     - DI filter time, ms (10..1000), default 50
@@ -85,6 +87,8 @@ extern "C" {
 #define MB_IR_UPTIME_LO             122u
 #define MB_IR_UPTIME_HI             123u
 #define MB_IR_DI_MASK               124u
+#define MB_IR_SAVE_COUNT            129u  /* successful settings saves since boot */
+#define MB_IR_SAVE_RESULT           130u  /* last save: 0 none, 1 ok, 2 failed    */
 #define MB_IR_MODULE_ID             125u
 
 /* Module ID values for MB_IR_MODULE_ID (register 125).

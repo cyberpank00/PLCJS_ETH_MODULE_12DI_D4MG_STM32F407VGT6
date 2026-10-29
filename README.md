@@ -184,7 +184,7 @@ New-NetFirewallRule -DisplayName "PLCJS PDP discovery" -Direction Inbound `
 | Восстановление KSZ8863 | Modbus `0x8863` в holding register 118 |
 | Сброс к заводским настройкам | Modbus `0xDEAD` в holding register 119 или FACT_RES |
 | Версия аппаратуры | `0x010101` в образе загрузчика/прошивки |
-| Версия прошивки | `0x010A` / 1.10 |
+| Версия прошивки | `0x010B` / 1.11 |
 | Module ID | `0x12D1` |
 | Product ID | `0x504C1201` |
 
@@ -274,6 +274,8 @@ New-NetFirewallRule -DisplayName "PLCJS PDP discovery" -Direction Inbound `
 | 123 | `UPTIME_HI` | `uint16` | Секунды работы, старшее слово | R |
 | 124 | `DI_MASK` | `uint16` | 12-битная маска отфильтрованных входов, бит 0 = DI1 | R |
 | 125 | `MODULE_ID` | `uint16` | Идентификатор модуля: `0x12D1` | R |
+| 129 | `SAVE_COUNT` | `uint16` | Число успешных сохранений настроек с момента старта: Flash записан и проверен чтением | R |
+| 130 | `SAVE_RESULT` | `uint16` | Результат последнего сохранения: 0 не было, 1 успешно, 2 ошибка | R |
 
 Секунды работы вычисляются так:
 
@@ -351,7 +353,7 @@ DI_MASK bit 11 = DI12
 | Команда | Код запроса | Код ответа | Назначение |
 |---|---:|---:|---|
 | `IDENTIFY` | `0x01` | `0x81` | MAC, Product ID, HW/FW, режим сети, IP, имя |
-| `SET_NET` | `0x02` | `0x82` | Назначение static/DHCP/link-local на лету |
+| `SET_NET` | `0x02` | `0x82` | Назначение static/DHCP/link-local на лету; static/link-local применяются после проверки адреса ARP-пробами (~1 с), статус 1 — адрес занят в сети |
 | `SET_NAME` | `0x03` | `0x83` | Имя устройства до 15 символов |
 | `FLASH_LED` | `0x04` | `0x84` | Мигнуть STAT_LED на заданное время |
 | `REBOOT` | `0x05` | `0x85` | Перезагрузка приложения |
@@ -467,7 +469,7 @@ cmake --build --preset Release
 | Module ID | `0x12D1` |
 | Product ID | `0x504C1201` |
 | HW revision | `0x010101` |
-| FW version | `0x010A` / 1.10 |
+| FW version | `0x010B` / 1.11 |
 
 Нельзя прошивать образ другого варианта: bootloader отклонит его на этапе
 проверки Product ID/HW revision.
